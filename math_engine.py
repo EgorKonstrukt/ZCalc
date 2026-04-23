@@ -218,6 +218,101 @@ def numerical_integral(expr: str, x_vals, extra: Optional[Dict] = None) -> List[
         except Exception:
             results.append(None)
     return results
+_DISCONTINUITY_FACTOR = 10.0
+def _eval_np_batch(expr: str, x_arr, ns_extra: dict):
+    ns = {**_NP_NS, "x": x_arr, **ns_extra}
+    raw = eval(compile(expr, "<expr>", "eval"), {"__builtins__": {}}, ns)
+    y = np.asarray(raw, dtype=np.float64)
+    if y.shape == ():
+        y = np.full(len(x_arr), float(y))
+    return y
+def sample_y_adaptive(expr: str, x_vals, extra: Optional[Dict] = None) -> Tuple[List[float], List[Optional[float]]]:
+    ns_extra = extra or {}
+    if not (_use_numpy and _NP_OK):
+        ys = sample_y(expr, x_vals, ns_extra)
+        return list(x_vals), ys
+    x_arr = np.asarray(x_vals, dtype=np.float64)
+    n = len(x_arr)
+    if n < 2:
+        return list(x_arr), sample_y(expr, x_vals, ns_extra)
+    try:
+        y_arr = _eval_np_batch(expr, x_arr, ns_extra)
+    except Exception:
+        return list(x_arr), [None] * n
+    fin = np.isfinite(y_arr)
+    y_work = np.where(fin, y_arr, np.nan)
+    fin_vals = y_arr[fin]
+    y_range = float(np.ptp(fin_vals)) if len(fin_vals) >= 2 else 1.0
+    if y_range == 0.0:
+        y_range = 1.0
+    threshold = y_range * _DISCONTINUITY_FACTOR
+    dy_abs = np.abs(np.diff(y_work))
+    both_fin = fin[:-1] & fin[1:]
+    jumps = np.where((dy_abs > threshold) | ~both_fin)[0]
+    for ji in jumps:
+        y_work[ji] = np.nan
+        if ji + 1 < n:
+            y_work[ji + 1] = np.nan
+    if len(jumps) == 0:
+        res_y: List[Optional[float]] = [float(y_work[i]) if np.isfinite(y_work[i]) else None for i in range(n)]
+        return list(x_arr), res_y
+    dx_step = float(x_arr[1] - x_arr[0]) if n >= 2 else 1.0
+    ranges: List[Tuple[float, float]] = []
+    for ji in jumps:
+        xl = float(x_arr[max(0, ji - 1)])
+        xr = float(x_arr[min(n - 1, ji + 2)])
+        ranges.append((xl, xr))
+    merged: List[List[float]] = []
+    for rng in sorted(ranges):
+        if merged and rng[0] <= merged[-1][1] + dx_step * 2:
+            merged[-1][1] = max(merged[-1][1], rng[1])
+        else:
+            merged.append([rng[0], rng[1]])
+    all_rx = np.concatenate([
+        np.linspace(xl, xr, min(128, max(16, int((xr - xl) / max(dx_step, 1e-30) * 8))), dtype=np.float64)
+        for xl, xr in merged
+    ]) if merged else np.empty(0, dtype=np.float64)
+    if len(all_rx) > 0:
+        try:
+            all_ry = _eval_np_batch(expr, all_rx, ns_extra)
+            ry_fin = np.isfinite(all_ry)
+            ry_range = float(np.ptp(all_ry[ry_fin])) if ry_fin.any() else y_range
+            ry_thresh = max(threshold, (ry_range or y_range) * _DISCONTINUITY_FACTOR)
+            dy_r = np.abs(np.diff(all_ry))
+            both_r = ry_fin[:-1] & ry_fin[1:]
+            disc_r = np.where((dy_r > ry_thresh) | ~both_r)[0]
+            for di in disc_r:
+                all_ry[di] = np.nan
+                if di + 1 < len(all_ry):
+                    all_ry[di + 1] = np.nan
+        except Exception:
+            all_rx = np.empty(0, dtype=np.float64)
+            all_ry = np.empty(0, dtype=np.float64)
+    else:
+        all_ry = np.empty(0, dtype=np.float64)
+    if len(merged) > 0 and len(all_rx) > 0:
+        covered = np.zeros(n, dtype=bool)
+        for xl, xr in merged:
+            covered |= (x_arr >= xl) & (x_arr <= xr)
+        keep = ~covered
+        base_x = x_arr[keep]
+        base_y = y_work[keep]
+        if len(base_x) > 0 or len(all_rx) > 0:
+            combined_x = np.concatenate([base_x, all_rx])
+            combined_y = np.concatenate([base_y, all_ry])
+            sort_idx = np.argsort(combined_x, kind="stable")
+            combined_x = combined_x[sort_idx]
+            combined_y = combined_y[sort_idx]
+        else:
+            combined_x = x_arr
+            combined_y = y_work
+    else:
+        combined_x = x_arr
+        combined_y = y_work
+    fin_f = np.isfinite(combined_y)
+    res_x = combined_x.tolist()
+    res_y_out: List[Optional[float]] = [float(combined_y[i]) if fin_f[i] else None for i in range(len(combined_y))]
+    return res_x, res_y_out
 def filter_none(xs, ys: List[Optional[float]]) -> Tuple[List[float], List[float]]:
     if _use_numpy and _NP_OK:
         x_arr = np.asarray(xs, dtype=float)

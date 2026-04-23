@@ -1,6 +1,6 @@
 from PyQt5.QtWidgets import (
     QHBoxLayout, QVBoxLayout, QColorDialog, QComboBox,
-    QSpinBox, QSizePolicy, QFrame, QWidget, QApplication
+    QSpinBox, QSizePolicy, QFrame, QWidget, QApplication, QPushButton
 )
 from PyQt5.QtCore import pyqtSignal, Qt
 from PyQt5.QtGui import QColor
@@ -10,6 +10,7 @@ from math_engine import expr_to_latex
 from expr_item import ExprItem, ITEM_HEIGHT
 from formula_input import FormulaInput
 from formula_editor import FormulaEditorPanel
+from visual_formula_dialog import VisualFormulaDialog
 _MODE_ITEMS = ["y=f(x)", "r=f(t)", "param"]
 _EDITOR_HEIGHT = 240
 _ROW_COLLAPSED_H = ITEM_HEIGHT
@@ -83,15 +84,32 @@ class FunctionRow(ExprItem):
         self._width_spin.setFixedWidth(36)
         self._width_spin.setStyleSheet("QSpinBox{border:none;font-size:11px;}")
         self._width_spin.valueChanged.connect(self.changed.emit)
+        self._visual_btn = QPushButton("Σ")
+        self._visual_btn.setFixedSize(22, 22)
+        self._visual_btn.setToolTip("Open visual formula editor")
+        self._visual_btn.setStyleSheet(
+            "QPushButton{background:#f5f0ff;border:1px solid #c9b8f0;"
+            "border-radius:3px;color:#5b2d8e;font-size:13px;font-weight:bold;padding:0px;}"
+            "QPushButton:hover{background:#e8deff;border-color:#8e44ad;}"
+            "QPushButton:pressed{background:#d5c5ff;}"
+        )
+        self._visual_btn.clicked.connect(self._open_visual_editor)
         rm = self._mk_remove_btn()
         for w in (self._mode_combo, self._input, self._input2, self._latex,
-                  self._width_spin, rm):
+                  self._width_spin, self._visual_btn, rm):
             inner.addWidget(w)
         top_layout.addLayout(inner)
         outer_v.addWidget(top_row)
         self._editor_panel = FormulaEditorPanel(self._input)
         self._editor_panel.setVisible(False)
         outer_v.addWidget(self._editor_panel)
+    def _open_visual_editor(self):
+        current = self._input.text().strip()
+        dlg = VisualFormulaDialog(current, self.window())
+        if dlg.exec_() == dlg.Accepted:
+            result = dlg.get_result()
+            self._input.setText(result)
+            self._on_expr_change()
     def _on_input_focused(self, inp: FormulaInput):
         self._editor_panel.set_target(inp)
         self._expand()

@@ -1,7 +1,7 @@
 import math
 
 APP_NAME = "ZCalc"
-APP_VERSION = "1.0.0"
+APP_VERSION = "1.1.0"
 
 COLORS = [
     "#e74c3c", "#3498db", "#2ecc71", "#f39c12", "#9b59b6",
