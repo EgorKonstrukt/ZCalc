@@ -1,7 +1,7 @@
 import math
 
 APP_NAME = "ZCalc"
-APP_VERSION = "1.1.0"
+APP_VERSION = "1.2.0"
 
 COLORS = [
     "#e74c3c", "#3498db", "#2ecc71", "#f39c12", "#9b59b6",
@@ -31,6 +31,89 @@ PRESETS = {
     "Rose cos(3t)":  ("cos(3*t)*cos(t)",                 "parametric","cos(3*t)*sin(t)"),
     "Hypotrochoid":  ("3*cos(t)+cos(3*t)*0.5",           "parametric","3*sin(t)-sin(3*t)*0.5"),
     "Astroid":       ("cos(t)**3",                        "parametric","sin(t)**3"),
+
+    "Weierstrass":   (
+        "sum(0.5**n * cos(3**n * pi * x) for n in range(10))",
+        None, None
+    ),  # потребует eval-loop или вспомогательную функцию в SAFE_NS
+
+    "Fresnel-like":  ("sin(x**2)",                       None,        None),
+    "Chirp":         ("sin(x**2 / (2*pi))",              None,        None),
+    "Damped osc":    ("exp(-0.3*abs(x)) * cos(4*x)",     None,        None),
+    "Beating":       ("sin(5*x) + sin(5.3*x)",           None,        None),
+    "Sinc²":         ("sinc(x)**2",                      None,        None),
+    "Logistic map":  ("1/(1+exp(-3*(x-2)))-1/(1+exp(-3*(x+2)))", None, None),
+    "Devil staircase":("floor(sin(pi*x)*4)/4",           None,        None),
+    "Cantor-ish":    ("sin(pi*x)*sin(pi*x*3)*sin(pi*x*9)", None,      None),
+    "Runge":         ("1/(1+25*x**2)",                   None,        None),
+    "Tanh sigmoid":  ("tanh(3*x) - tanh(x-3) + tanh(x+3)", None,     None),
+    "Resonance":     ("x / ((1 - x**2)**2 + (0.1*x)**2)**0.5", None, None),
+    "Harmonic comb": ("sin(x)+sin(2*x)/2+sin(3*x)/3+sin(4*x)/4+sin(5*x)/5", None, None),
+    "Phase mod":     ("sin(x + sin(3*x))",               None,        None),
+    "AM+FM":         ("(1+0.5*sin(0.5*x))*sin(8*x)",    None,        None),
+    "Erf-ish":       ("x*exp(-x**2/4)",                  None,        None),
+    "Zeta approx":   ("sum(1/n**x for n in range(1,12))", None,       None),  # нужен eval-loop
+    "Chaos logistic":("3.9*x*(1-x)",                     None,        None),
+    "Tent map":      ("2*x if x<0.5 else 2*(1-x)",       None,        None),
+    "Abs sin frac":  ("abs(sin(pi*x)) * frac(x)",        None,        None),
+    "Square+sin":    ("square(x) * sin(x)",              None,        None),
+    "Saw harmonic":  ("sawtooth(x) + 0.3*sin(5*x)",     None,        None),
+    "Sigmoid chain": ("sigmoid(x)*sigmoid(-x+5)*sigmoid(x+5)", None,  None),
+
+    "Epitrochoid":   ("(3+1)*cos(t) - 1*cos((3+1)*t)",  "parametric",
+                      "(3+1)*sin(t) - 1*sin((3+1)*t)"),
+    "Hypotrochoid 5/3": ("(5-3)*cos(t)+2*cos((5-3)/3*t)", "parametric",
+                          "(5-3)*sin(t)-2*sin((5-3)/3*t)"),
+    "Maclaurin":     ("cos(t)**3",                       "parametric",
+                      "sin(t)**3 + 0.5*sin(3*t)"),
+    "Folium":        ("3*t/(1+t**3)",                    "parametric",
+                      "3*t**2/(1+t**3)"),
+    "Fermat spiral": ("t**0.5*cos(t)",                   "parametric",
+                      "t**0.5*sin(t)"),
+    "Involute":      ("cos(t)+t*sin(t)",                 "parametric",
+                      "sin(t)-t*cos(t)"),
+    "Nephroid":      ("3*cos(t)-cos(3*t)",               "parametric",
+                      "3*sin(t)-sin(3*t)"),
+    "Deltoid":       ("2*cos(t)+cos(2*t)",               "parametric",
+                      "2*sin(t)-sin(2*t)"),
+    "Cardioid":      ("2*cos(t)*(1-cos(t))",             "parametric",
+                      "2*sin(t)*(1-cos(t))"),
+    "Lemniscate":    ("cos(t)/(1+sin(t)**2)",            "parametric",
+                      "sin(t)*cos(t)/(1+sin(t)**2)"),
+    "Kampyle":       ("1/cos(t)**2",                     "parametric",
+                      "tan(t)/cos(t)**2"),
+    "Talbot":        ("(1+0.9*sin(t)**2)*cos(t)",        "parametric",
+                      "(1-0.9*sin(t)**2)*sin(t)*1.5"),
+    "Watt":          ("2*sin(t)+sin(2*t)",               "parametric",
+                      "2*cos(t)-cos(2*t)+1"),
+    "Limacon":       ("(1+0.7*cos(t))*cos(t)",          "parametric",
+                      "(1+0.7*cos(t))*sin(t)"),
+    "Tricuspoid":    ("2*cos(t)+cos(2*t)",               "parametric",
+                      "2*sin(t)-sin(2*t)"),
+    "Spirograph 7/3":("4*cos(t)+cos(4*t/3*7)",          "parametric",
+                      "4*sin(t)-sin(4*t/3*7)"),
+    "Butterfly2":    ("sin(t)*cos(t)**2",                "parametric",
+                      "sin(t)**2*cos(t)"),
+    "Tschirnhaus":   ("t**2",                            "parametric",
+                      "t**3 - t"),
+    "Knot":          ("cos(t)+2*cos(2*t)",               "parametric",
+                      "sin(t)-2*sin(2*t)"),
+    "Double egg":    ("cos(t)*(1+0.5*cos(2*t))",        "parametric",
+                      "sin(t)*(1+0.5*cos(2*t))"),
+    "Rhodonea 5":    ("cos(5*t)*cos(t)",                 "parametric",
+                      "cos(5*t)*sin(t)"),
+    "Rhodonea 7/2":  ("cos(7*t/2)*cos(t)",              "parametric",
+                      "cos(7*t/2)*sin(t)"),
+    "Lissajous 5:4": ("sin(5*t+0.3)",                   "parametric",
+                      "sin(4*t)"),
+    "Lissajous 7:6": ("sin(7*t+pi/4)",                  "parametric",
+                      "sin(6*t)"),
+    "Superellipse":  ("sign(cos(t))*abs(cos(t))**0.6",  "parametric",
+                      "sign(sin(t))*abs(sin(t))**0.6"),
+    "Gear 8":        ("(1+0.15*cos(8*t))*cos(t)",       "parametric",
+                      "(1+0.15*cos(8*t))*sin(t)"),
+    "Klein-ish":     ("sin(t/2)*sin(t)",                 "parametric",
+                      "sin(t/2)*cos(t)"),
 }
 
 SAFE_NS = {

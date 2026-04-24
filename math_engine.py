@@ -254,7 +254,10 @@ def sample_y_adaptive(expr: str, x_vals, extra: Optional[Dict] = None) -> Tuple[
         if ji + 1 < n:
             y_work[ji + 1] = np.nan
     if len(jumps) == 0:
-        res_y: List[Optional[float]] = [float(y_work[i]) if np.isfinite(y_work[i]) else None for i in range(n)]
+        out2 = np.where(np.isfinite(y_work), y_work, None).astype(object)
+        for i in np.where(np.isfinite(y_work))[0]:
+            out2[i] = float(y_work[i])
+        res_y: List[Optional[float]] = out2.tolist()
         return list(x_arr), res_y
     dx_step = float(x_arr[1] - x_arr[0]) if n >= 2 else 1.0
     ranges: List[Tuple[float, float]] = []
@@ -311,7 +314,12 @@ def sample_y_adaptive(expr: str, x_vals, extra: Optional[Dict] = None) -> Tuple[
         combined_y = y_work
     fin_f = np.isfinite(combined_y)
     res_x = combined_x.tolist()
-    res_y_out: List[Optional[float]] = [float(combined_y[i]) if fin_f[i] else None for i in range(len(combined_y))]
+    out_obj = np.where(fin_f, combined_y, None)
+    out_obj = out_obj.astype(object)
+    fin_idx = np.where(fin_f)[0]
+    for i in fin_idx:
+        out_obj[i] = float(combined_y[i])
+    res_y_out: List[Optional[float]] = out_obj.tolist()
     return res_x, res_y_out
 def filter_none(xs, ys: List[Optional[float]]) -> Tuple[List[float], List[float]]:
     if _use_numpy and _NP_OK:
