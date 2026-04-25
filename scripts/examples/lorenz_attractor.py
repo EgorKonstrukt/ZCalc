@@ -17,7 +17,7 @@ BETA0   = 8.0 / 3.0
 DT      = 0.005
 TRAIL   = 2500
 SPF     = 6
-FPS     = 30
+FPS     = 60
 X0, Y0, Z0 = 1.0, 1.0, 1.5
 
 api.add_param("sigma", lo=1.0,  hi=20.0, val=SIGMA0)

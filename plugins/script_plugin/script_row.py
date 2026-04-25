@@ -7,7 +7,7 @@ from PyQt5.QtWidgets import (
     QWidget, QHBoxLayout, QVBoxLayout, QLabel, QPushButton,
     QFrame, QSizePolicy, QFileDialog, QMessageBox,
 )
-from PyQt5.QtCore import pyqtSignal, QTimer, QFileSystemWatcher
+from PyQt5.QtCore import pyqtSignal, QTimer, QFileSystemWatcher, Qt
 
 if TYPE_CHECKING:
     from core.app_context import AppContext
@@ -15,95 +15,131 @@ if TYPE_CHECKING:
 from .script_api import ScriptAPI
 from .script_runner import build_namespace, run_script
 from .editor_launcher import open_in_editor
+from .profiler import ScriptProfiler, get_memory_mb, _PSUTIL
 
 _FRAME_STYLE = (
-    "QFrame#script_frame{background:#f6fff6;border:1px solid #88cc88;"
-    "border-radius:4px;margin:2px;}"
+    "QFrame#script_item{"
+    "background:#f4fff4;"
+    "border-left:4px solid #27ae60;"
+    "border-top:1px solid #b2dfb2;"
+    "border-right:1px solid #b2dfb2;"
+    "border-bottom:1px solid #b2dfb2;"
+    "margin:1px 0px;"
+    "}"
 )
-_BTN_RUN  = ("QPushButton{background:#27ae60;color:white;border:none;border-radius:3px;"
-             "font-size:10px;padding:3px 8px;}"
-             "QPushButton:hover{background:#219a52;}")
-_BTN_STOP = ("QPushButton{background:#e74c3c;color:white;border:none;border-radius:3px;"
-             "font-size:10px;padding:3px 8px;}"
-             "QPushButton:hover{background:#c0392b;}")
-_BTN_EDIT = ("QPushButton{background:#3498db;color:white;border:none;border-radius:3px;"
-             "font-size:10px;padding:3px 8px;}"
-             "QPushButton:hover{background:#2980b9;}")
-_BTN_LOAD = ("QPushButton{background:#7f8c8d;color:white;border:none;border-radius:3px;"
-             "font-size:10px;padding:3px 8px;}"
-             "QPushButton:hover{background:#636e72;}")
-_BTN_RM   = ("QPushButton{background:#bdc3c7;color:#444;border:none;border-radius:3px;"
-             "font-size:11px;font-weight:bold;padding:2px 6px;}"
-             "QPushButton:hover{background:#e74c3c;color:white;}")
+_BTN = "QPushButton{{background:{bg};color:white;border:none;border-radius:3px;font-size:10px;padding:2px 7px;}}QPushButton:hover{{background:{hv};}}"
+_BTN_RUN  = _BTN.format(bg="#27ae60", hv="#1e8449")
+_BTN_STOP = _BTN.format(bg="#e74c3c", hv="#c0392b")
+_BTN_EDIT = _BTN.format(bg="#2980b9", hv="#1a6fa0")
+_BTN_LOAD = _BTN.format(bg="#7f8c8d", hv="#636e72")
+_BTN_RM   = ("QPushButton{background:transparent;color:#aaa;border:none;"
+             "font-size:13px;font-weight:bold;padding:0 4px;}"
+             "QPushButton:hover{color:#e74c3c;}")
 _ST_OK    = "QLabel{font-size:9px;color:#27ae60;}"
 _ST_ERR   = "QLabel{font-size:9px;color:#e74c3c;}"
 _ST_IDLE  = "QLabel{font-size:9px;color:#95a5a6;}"
+_PROF_STYLE = (
+    "QLabel{font-size:9px;color:#555;font-family:monospace;"
+    "background:#eefaee;border-top:1px solid #c3e6c3;padding:2px 6px;}"
+)
 _WATCH_DEBOUNCE_MS = 600
+_PROF_UPDATE_MS = 500
 
 
 class ScriptRow(QFrame):
     """
-    Panel item that manages one Python script file.
+    Panel item widget for one Python script.
 
-    Handles run/stop lifecycle, file-system watching for auto-reload,
-    and serialisation for session save/restore.
+    type == "plugin_item" so it serialises correctly via FunctionPanel._restore_items.
+    Supports drag-and-drop reordering and nesting inside Folder items.
     """
     changed = pyqtSignal()
     removed = pyqtSignal(object)
 
     def __init__(self, context: "AppContext", script_path: Optional[str] = None, parent=None):
         super().__init__(parent)
-        self.setObjectName("script_frame")
+        self.setObjectName("script_item")
         self.setStyleSheet(_FRAME_STYLE)
         self._ctx = context
         self._script_path: Optional[str] = script_path
         self._running = False
         self._api: Optional[ScriptAPI] = None
         self._script_lines: Dict[str, Any] = {}
+        self._profiler = ScriptProfiler()
         self._watcher = QFileSystemWatcher(self)
         self._watcher.fileChanged.connect(self._on_file_changed)
         self._debounce = QTimer(self)
         self._debounce.setSingleShot(True)
         self._debounce.setInterval(_WATCH_DEBOUNCE_MS)
         self._debounce.timeout.connect(self._auto_reload)
+        self._prof_timer = QTimer(self)
+        self._prof_timer.setInterval(_PROF_UPDATE_MS)
+        self._prof_timer.timeout.connect(self._update_prof_label)
         self._build_ui()
         if script_path and os.path.isfile(script_path):
             self._watcher.addPath(script_path)
 
     def _build_ui(self):
         outer = QVBoxLayout(self)
-        outer.setContentsMargins(4, 4, 4, 4)
-        outer.setSpacing(2)
-        header = QHBoxLayout()
+        outer.setContentsMargins(0, 0, 0, 0)
+        outer.setSpacing(0)
+
+        top = QWidget()
+        top.setStyleSheet("background:transparent;")
+        header = QHBoxLayout(top)
+        header.setContentsMargins(6, 3, 4, 3)
+        header.setSpacing(4)
+
+        icon = QLabel("◈")
+        icon.setStyleSheet("QLabel{color:#27ae60;font-size:13px;font-weight:bold;}")
+        icon.setFixedWidth(16)
+
         self._name_lbl = QLabel(self._display_name())
         self._name_lbl.setStyleSheet(
-            "QLabel{font-size:11px;font-weight:bold;color:#1a6b1a;}"
+            "QLabel{font-size:11px;font-weight:bold;color:#1a5c1a;}"
         )
         self._name_lbl.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+
         self._status_lbl = QLabel("idle")
         self._status_lbl.setStyleSheet(_ST_IDLE)
+        self._status_lbl.setFixedWidth(120)
+        self._status_lbl.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+
         self._run_btn  = self._mk_btn("Run",  _BTN_RUN,  self._on_run)
         self._stop_btn = self._mk_btn("Stop", _BTN_STOP, self._on_stop)
         self._stop_btn.setEnabled(False)
         self._edit_btn = self._mk_btn("Edit", _BTN_EDIT, self._on_edit)
         self._load_btn = self._mk_btn("Load", _BTN_LOAD, self._on_load)
-        rm_btn = QPushButton("x")
+
+        rm_btn = QPushButton("✕")
         rm_btn.setStyleSheet(_BTN_RM)
-        rm_btn.setFixedSize(22, 22)
+        rm_btn.setFixedSize(20, 20)
+        rm_btn.setToolTip("Remove script")
         rm_btn.clicked.connect(lambda: self.removed.emit(self))
-        for w in (self._name_lbl, self._status_lbl, self._run_btn,
-                  self._stop_btn, self._edit_btn, self._load_btn, rm_btn):
+
+        for w in (icon, self._name_lbl, self._status_lbl,
+                  self._run_btn, self._stop_btn, self._edit_btn,
+                  self._load_btn, rm_btn):
             header.addWidget(w)
-        outer.addLayout(header)
+
+        outer.addWidget(top)
+
         self._path_lbl = QLabel("No file loaded")
-        self._path_lbl.setStyleSheet("QLabel{font-size:9px;color:#b0b0b0;}")
+        self._path_lbl.setStyleSheet(
+            "QLabel{font-size:9px;color:#aaa;padding:0 6px 2px 28px;}"
+        )
         self._path_lbl.setWordWrap(True)
         outer.addWidget(self._path_lbl)
+
+        self._prof_lbl = QLabel("")
+        self._prof_lbl.setStyleSheet(_PROF_STYLE)
+        self._prof_lbl.setVisible(False)
+        outer.addWidget(self._prof_lbl)
 
     def _mk_btn(self, text: str, style: str, slot) -> QPushButton:
         btn = QPushButton(text)
         btn.setStyleSheet(style)
-        btn.setFixedHeight(22)
+        btn.setFixedHeight(20)
         btn.clicked.connect(slot)
         return btn
 
@@ -121,7 +157,7 @@ class ScriptRow(QFrame):
 
     def _on_run(self):
         if not self._script_path or not os.path.isfile(self._script_path):
-            self._set_status("No script file loaded", error=True)
+            self._set_status("No file loaded", error=True)
             return
         try:
             code = Path(self._script_path).read_text(encoding="utf-8")
@@ -131,6 +167,7 @@ class ScriptRow(QFrame):
         if self._api:
             self._api.cleanup()
         self._api = ScriptAPI(self._ctx, self)
+        self._profiler.start()
         ns = build_namespace(self._api)
         ok, err = run_script(code, ns)
         if ok:
@@ -138,21 +175,58 @@ class ScriptRow(QFrame):
             self._run_btn.setEnabled(False)
             self._stop_btn.setEnabled(True)
             self._set_status("running", ok=True)
+            self._prof_lbl.setVisible(True)
+            self._prof_timer.start()
         else:
+            self._profiler.stop()
             first_err = err.strip().splitlines()[-1] if err.strip() else "Error"
             self._set_status(first_err, error=True)
             self._ctx.show_status(f"Script error: {first_err}", 6000)
+            self._prof_lbl.setVisible(True)
+            self._update_prof_label()
         self.changed.emit()
 
     def _on_stop(self):
         if self._api:
             self._api.cleanup()
             self._api = None
+        if self._running:
+            self._profiler.stop()
+        self._prof_timer.stop()
         self._running = False
         self._run_btn.setEnabled(True)
         self._stop_btn.setEnabled(False)
         self._set_status("stopped")
+        self._update_prof_label()
         self.changed.emit()
+
+    def _update_prof_label(self):
+        s = self._profiler.summary()
+        wall = s["wall_s"]
+        cpu  = s["cpu_s"]
+        mem  = s["mem_mb"]
+        delt = s["mem_delta_mb"]
+        peak = s["mem_peak_mb"]
+        cpup = s["cpu_pct"]
+        psutil_note = "" if _PSUTIL else "  (install psutil for CPU%/RAM)"
+        if self._running:
+            parts = [
+                f"⏱ {wall:.1f}s",
+                f"CPU {cpu*1000:.0f}ms",
+                f"RAM {mem:.1f}MB",
+                f"Δ{delt:+.1f}MB",
+            ]
+            if _PSUTIL:
+                parts.append(f"CPU% {cpup:.0f}%")
+        else:
+            parts = [
+                f"ran {wall:.2f}s",
+                f"CPU {cpu*1000:.0f}ms",
+                f"RAM {mem:.1f}MB",
+                f"peak {peak:.1f}MB",
+                f"Δ{delt:+.1f}MB",
+            ]
+        self._prof_lbl.setText("  ".join(parts) + psutil_note)
 
     def _on_edit(self):
         from config import Config
@@ -171,32 +245,32 @@ class ScriptRow(QFrame):
             QMessageBox.warning(
                 self, "Editor Not Found",
                 f"Cannot launch '{editor_cmd}'.\n"
-                "Change the editor in Settings > Script Editor.",
+                "Change it in Settings > Script Editor.",
             )
 
     def _create_new_and_edit(self, editor_cmd: str):
-        scripts_dir = self._default_scripts_dir()
-        scripts_dir.mkdir(parents=True, exist_ok=True)
-        base = scripts_dir / "new_script.py"
+        d = self._scripts_dir()
+        d.mkdir(parents=True, exist_ok=True)
+        p = d / "new_script.py"
         n = 1
-        while base.exists():
-            base = scripts_dir / f"new_script_{n}.py"
+        while p.exists():
+            p = d / f"new_script_{n}.py"
             n += 1
-        base.write_text(
-            '"""\nZCalc Script\nUse `api` to interact with the application.\n"""\n\n',
+        p.write_text(
+            '"""\nZCalc Script  —  use `api` to interact with the application.\n"""\n\n',
             encoding="utf-8",
         )
-        self._set_path(str(base))
-        if not open_in_editor(str(base), editor_cmd):
+        self._set_path(str(p))
+        if not open_in_editor(str(p), editor_cmd):
             QMessageBox.warning(
                 self, "Editor Not Found",
                 f"Cannot launch '{editor_cmd}'.\n"
-                "Change the editor in Settings > Script Editor.",
+                "Change it in Settings > Script Editor.",
             )
 
     def _on_load(self):
         path, _ = QFileDialog.getOpenFileName(
-            self, "Load Script", str(self._default_scripts_dir()),
+            self, "Load Script", str(self._scripts_dir()),
             "Python (*.py);;All Files (*)",
         )
         if path:
@@ -212,7 +286,7 @@ class ScriptRow(QFrame):
         if os.path.isfile(path):
             self._watcher.addPath(path)
 
-    def _default_scripts_dir(self) -> Path:
+    def _scripts_dir(self) -> Path:
         return Path(__file__).parent.parent.parent / "scripts"
 
     def _set_status(self, msg: str, error: bool = False, ok: bool = False):
@@ -226,20 +300,27 @@ class ScriptRow(QFrame):
 
     def to_state(self) -> dict:
         return {
-            "type": "script",
-            "plugin_id": "zcalc.script",
+            "type":        "plugin_item",
+            "plugin_id":   "zcalc.script",
             "script_path": self._script_path or "",
-            "running": self._running,
+            "running":     self._running,
         }
 
     def apply_state(self, state: dict):
         path = state.get("script_path", "")
         if path and os.path.isfile(path):
             self._set_path(path)
-        if state.get("running", False) and path and os.path.isfile(path):
+        elif path:
+            self._path_lbl.setText(f"(missing) {path}")
+            self._script_path = path
+            self._name_lbl.setText(self._display_name())
+        if state.get("running", False) and self._script_path and os.path.isfile(self._script_path):
             self._on_run()
 
     def deleteLater(self):
+        self._prof_timer.stop()
         if self._api:
             self._api.cleanup()
+        if self._running:
+            self._profiler.stop()
         super().deleteLater()

@@ -9,7 +9,7 @@ if TYPE_CHECKING:
 
 
 class PlotWindow(QDialog):
-    """Standalone chart window created by a script."""
+    """Standalone chart window opened by a script."""
     def __init__(self, title: str = "Script Plot", parent=None):
         super().__init__(parent)
         from pyqt5_chart_widget import ChartWidget
@@ -30,9 +30,9 @@ class PlotWindow(QDialog):
 
     def plot(self, xs: List[float], ys: List[float], label: str = "",
              color: str = "#3498db", width: int = 2) -> Any:
-        """Add or update a named line on this window's chart."""
+        """Add or update a named line."""
         from PyQt5.QtGui import QColor
-        key = label or f"_line{len(self._lines)}"
+        key = label or f"_l{len(self._lines)}"
         if key not in self._lines:
             self._lines[key] = self._chart.plot(label=label, color=color, width=width)
         line = self._lines[key]
@@ -45,7 +45,6 @@ class PlotWindow(QDialog):
         return line
 
     def clear(self):
-        """Remove all lines from this window's chart."""
         for line in self._lines.values():
             try:
                 line.setData(xs=[], ys=[])
@@ -55,27 +54,23 @@ class PlotWindow(QDialog):
 
 
 class AnimHandle:
-    """Token returned by api.animate(); call stop() to cancel."""
+    """Token returned by api.animate()."""
     def __init__(self, api: "ScriptAPI", handle_id: int):
         self._api = api
         self._id = handle_id
 
     def stop(self):
-        """Stop the animation associated with this handle."""
         self._api._stop_anim(self._id)
 
     @property
     def t(self) -> float:
-        """Elapsed time in seconds since the animation started."""
         return self._api._get_anim_t(self._id)
 
 
 class ScriptAPI:
     """
     Public interface injected as `api` into every script namespace.
-
-    Provides chart access, parameter sliders, animation, new windows,
-    and status bar messaging.  All resources are cleaned up on stop().
+    All resources are cleaned up on stop().
     """
     def __init__(self, context: "AppContext", owner_row):
         self._ctx = context
@@ -86,14 +81,12 @@ class ScriptAPI:
         self._plot_windows: List[PlotWindow] = []
 
     def plot(self, xs, ys, label: str = "", color: str = "#3498db", width: int = 2) -> Any:
-        """Plot xs/ys on the main chart, keyed by label. Returns the line object."""
+        """Plot xs/ys on the main chart. Returns the line object."""
         from PyQt5.QtGui import QColor
         key = f"_sr_{id(self._row)}_{label or id((xs, ys))}"
         lines = self._row._script_lines
         if key not in lines:
-            lines[key] = self._ctx.chart.plot(
-                label=label or "script", color=color, width=width
-            )
+            lines[key] = self._ctx.chart.plot(label=label or "script", color=color, width=width)
         line = lines[key]
         line.pen.setColor(QColor(color))
         line.pen.setWidth(width)
@@ -126,7 +119,7 @@ class ScriptAPI:
         return panel.add_function_from_state(state)
 
     def add_param(self, name: str, lo: float = -5.0, hi: float = 5.0, val: float = 1.0):
-        """Add a parameter slider to the main panel if it does not already exist."""
+        """Add a parameter slider to the panel if it doesn't already exist."""
         panel = self._ctx.panel
         if name not in panel._param_widgets:
             panel.add_param(name, record=False, state={
@@ -139,7 +132,7 @@ class ScriptAPI:
         return self._ctx.panel.get_params().get(name, default)
 
     def get_t(self) -> float:
-        """Return the current t from AnimPanel, or 0.0 if unavailable."""
+        """Return the AnimPanel t value, or 0.0 if unavailable."""
         panel = self._ctx.panel
         anim = getattr(panel, "anim_panel", None)
         if anim is not None:
@@ -156,16 +149,17 @@ class ScriptAPI:
     def animate(self, callback: Callable[[float], None],
                 fps: int = 30, duration_ms: int = 0) -> AnimHandle:
         """
-        Call callback(t) at fps frames/sec, where t is elapsed seconds.
-        duration_ms=0 means infinite.  Returns an AnimHandle.
+        Call callback(t) at fps frames/sec, t = elapsed seconds.
+        duration_ms=0 means infinite. Returns an AnimHandle.
         """
         handle_id = self._anim_counter
         self._anim_counter += 1
         interval = max(8, 1000 // max(1, fps))
-        record: Dict = {"elapsed_ms": 0, "interval": interval, "cb": callback}
+        record: Dict = {"elapsed_ms": 0, "interval": interval}
         self._anim_records[handle_id] = record
         timer = QTimer()
         timer.setInterval(interval)
+
         def _tick():
             record["elapsed_ms"] += interval
             if duration_ms > 0 and record["elapsed_ms"] >= duration_ms:
@@ -180,6 +174,7 @@ class ScriptAPI:
                 timer.stop()
                 self._anim_records.pop(handle_id, None)
                 self._anim_timers.pop(handle_id, None)
+
         timer.timeout.connect(_tick)
         self._anim_timers[handle_id] = timer
         timer.start()
@@ -195,7 +190,7 @@ class ScriptAPI:
         self._ctx.show_status(msg, timeout_ms)
 
     def replot(self):
-        """Request an immediate replot of the main chart."""
+        """Request a replot of the main chart."""
         self._ctx.request_replot()
 
     def _stop_anim(self, handle_id: int):

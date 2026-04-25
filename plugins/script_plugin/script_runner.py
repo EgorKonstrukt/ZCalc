@@ -18,7 +18,7 @@ _MATH_NS: Dict[str, Any] = {
     k: getattr(math, k) for k in dir(math) if not k.startswith("_")
 }
 
-_EXTRA_MATH: Dict[str, Any] = {
+_EXTRA: Dict[str, Any] = {
     "sign":     lambda x: (1 if x > 0 else -1 if x < 0 else 0),
     "clamp":    lambda x, a, b: max(a, min(b, x)),
     "lerp":     lambda a, b, t: a + (b - a) * t,
@@ -34,10 +34,10 @@ _EXTRA_MATH: Dict[str, Any] = {
 
 
 def build_namespace(api, extra: Dict[str, Any] = None) -> Dict[str, Any]:
-    """Build the full execution namespace for a script."""
+    """Build the execution namespace for a script."""
     ns: Dict[str, Any] = {"__builtins__": _SAFE_BUILTINS}
     ns.update(_MATH_NS)
-    ns.update(_EXTRA_MATH)
+    ns.update(_EXTRA)
     ns["api"] = api
     if extra:
         ns.update(extra)
@@ -46,8 +46,8 @@ def build_namespace(api, extra: Dict[str, Any] = None) -> Dict[str, Any]:
 
 def run_script(code: str, ns: Dict[str, Any]) -> Tuple[bool, str]:
     """
-    Execute code string inside ns.
-    Returns (success, error_traceback_or_empty).
+    Execute code in ns.
+    Returns (success, traceback_or_empty).
     """
     try:
         exec(compile(code, "<script>", "exec"), ns)

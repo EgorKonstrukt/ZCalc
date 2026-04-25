@@ -19,7 +19,7 @@ PERIOD_S      = 18.0
 DISTURBANCE_T = 9.0
 DISTURBANCE_D = 0.4
 MAX_HISTORY   = 900
-FPS           = 30
+FPS           = 1000
 
 api.add_param("Kp", lo=0.0, hi=10.0, val=2.0)
 api.add_param("Ki", lo=0.0, hi=5.0,  val=0.5)
