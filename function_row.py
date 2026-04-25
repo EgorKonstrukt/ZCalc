@@ -11,18 +11,46 @@ from expr_item import ExprItem, ITEM_HEIGHT
 from formula_input import FormulaInput
 from formula_editor import FormulaEditorPanel
 from visual_formula_dialog import VisualFormulaDialog
+from eval_loop_panel import EvalLoopPanel
+
 _MODE_ITEMS = ["y=f(x)", "r=f(t)", "param"]
 _EDITOR_HEIGHT = 240
+_ELP_HEIGHT = 88
 _ROW_COLLAPSED_H = ITEM_HEIGHT
 _ROW_EXPANDED_H = ITEM_HEIGHT + _EDITOR_HEIGHT
+_ROW_ELP_H = ITEM_HEIGHT + _ELP_HEIGHT
+_ROW_FULL_H = ITEM_HEIGHT + _EDITOR_HEIGHT + _ELP_HEIGHT
+
+
 def _normalize_mode(mode: str) -> str:
     if mode == "parametric":
         return "param"
     return mode if mode in _MODE_ITEMS else "y=f(x)"
+
+
+def _row_height(expanded: bool, elp_visible: bool) -> int:
+    if expanded and elp_visible:
+        return _ROW_FULL_H
+    if expanded:
+        return _ROW_EXPANDED_H
+    if elp_visible:
+        return _ROW_ELP_H
+    return _ROW_COLLAPSED_H
+
+
 class FunctionRow(ExprItem):
+    """
+    One function entry in the function list.
+
+    Owns a FormulaInput for the expression, an optional second input for
+    parametric y(t), a FormulaEditorPanel that expands inline, and an
+    EvalLoopPanel that can be toggled independently.
+    """
+
     changed = pyqtSignal()
     removed = pyqtSignal(object)
     _id_counter = 0
+
     def __init__(self, idx: int, parent=None):
         super().__init__(parent)
         FunctionRow._id_counter += 1
@@ -32,9 +60,11 @@ class FunctionRow(ExprItem):
         self._enabled = True
         self._mode = "y=f(x)"
         self._expanded = False
+        self._elp_visible = False
         self.setFixedHeight(_ROW_COLLAPSED_H)
         self._build_ui()
         QApplication.instance().focusChanged.connect(self._on_app_focus_changed)
+
     def _build_ui(self):
         outer_v = QVBoxLayout(self)
         outer_v.setContentsMargins(0, 0, 0, 0)
@@ -84,7 +114,7 @@ class FunctionRow(ExprItem):
         self._width_spin.setFixedWidth(36)
         self._width_spin.setStyleSheet("QSpinBox{border:none;font-size:11px;}")
         self._width_spin.valueChanged.connect(self.changed.emit)
-        self._visual_btn = QPushButton("Σ")
+        self._visual_btn = QPushButton("S")
         self._visual_btn.setFixedSize(22, 22)
         self._visual_btn.setToolTip("Open visual formula editor")
         self._visual_btn.setStyleSheet(
@@ -94,15 +124,39 @@ class FunctionRow(ExprItem):
             "QPushButton:pressed{background:#d5c5ff;}"
         )
         self._visual_btn.clicked.connect(self._open_visual_editor)
+        self._elp_btn = QPushButton("~")
+        self._elp_btn.setFixedSize(22, 22)
+        self._elp_btn.setCheckable(True)
+        self._elp_btn.setToolTip("Toggle eval-loop panel")
+        self._elp_btn.setStyleSheet(
+            "QPushButton{background:#e8f4fd;border:1px solid #aed6f1;"
+            "border-radius:3px;color:#1a5276;font-size:12px;font-weight:bold;padding:0px;}"
+            "QPushButton:checked{background:#aed6f1;border-color:#1a5276;}"
+            "QPushButton:hover{background:#d6eaf8;}"
+        )
+        self._elp_btn.toggled.connect(self._on_elp_toggled)
         rm = self._mk_remove_btn()
         for w in (self._mode_combo, self._input, self._input2, self._latex,
-                  self._width_spin, self._visual_btn, rm):
+                  self._width_spin, self._visual_btn, self._elp_btn, rm):
             inner.addWidget(w)
         top_layout.addLayout(inner)
         outer_v.addWidget(top_row)
         self._editor_panel = FormulaEditorPanel(self._input)
         self._editor_panel.setVisible(False)
         outer_v.addWidget(self._editor_panel)
+        self.eval_loop_panel = EvalLoopPanel(self)
+        self.eval_loop_panel.setVisible(False)
+        self.eval_loop_panel.changed.connect(self._on_elp_changed)
+        outer_v.addWidget(self.eval_loop_panel)
+
+    def _on_elp_toggled(self, checked: bool):
+        self._elp_visible = checked
+        self.eval_loop_panel.setVisible(checked)
+        self._sync_height()
+
+    def _on_elp_changed(self):
+        self.changed.emit()
+
     def _open_visual_editor(self):
         current = self._input.text().strip()
         dlg = VisualFormulaDialog(current, self.window())
@@ -110,9 +164,11 @@ class FunctionRow(ExprItem):
             result = dlg.get_result()
             self._input.setText(result)
             self._on_expr_change()
+
     def _on_input_focused(self, inp: FormulaInput):
         self._editor_panel.set_target(inp)
         self._expand()
+
     def _on_app_focus_changed(self, old, new):
         if not self._expanded or new is None:
             return
@@ -122,6 +178,10 @@ class FunctionRow(ExprItem):
                 return
             w = w.parent()
         self._collapse()
+
+    def _sync_height(self):
+        self.setFixedHeight(_row_height(self._expanded, self._elp_visible))
+
     def _expand(self):
         if self._expanded:
             return
@@ -131,14 +191,16 @@ class FunctionRow(ExprItem):
         if self._mode == "param":
             self._input2.setVisible(True)
         self._editor_panel.setVisible(True)
-        self.setFixedHeight(_ROW_EXPANDED_H)
+        self._sync_height()
+
     def _collapse(self):
         if not self._expanded:
             return
         self._expanded = False
         self._editor_panel.setVisible(False)
-        self.setFixedHeight(_ROW_COLLAPSED_H)
+        self._sync_height()
         self._refresh_latex()
+
     def _pick_color(self):
         c = QColorDialog.getColor(QColor(self.color), self)
         if c.isValid():
@@ -147,6 +209,7 @@ class FunctionRow(ExprItem):
             if self.chart_line:
                 self.chart_line.pen.setColor(QColor(self.color))
             self.changed.emit()
+
     def _on_mode_change(self, mode: str):
         self._mode = mode
         is_param = (mode == "param")
@@ -157,10 +220,12 @@ class FunctionRow(ExprItem):
             self._input2.setVisible(is_param)
         self._refresh_latex()
         self.changed.emit()
+
     def _on_expr_change(self):
         if not self._expanded:
             self._refresh_latex()
         self.changed.emit()
+
     def _refresh_latex(self):
         if self._expanded:
             return
@@ -188,29 +253,41 @@ class FunctionRow(ExprItem):
             self._input.setVisible(True)
             if self._mode == "param":
                 self._input2.setVisible(True)
+
     def _show_input_for_edit(self):
         self._latex.setVisible(False)
         self._input.setVisible(True)
         if self._mode == "param":
             self._input2.setVisible(True)
         self._input.setFocus()
+
     def get_expr(self) -> str:
         return self._input.text().strip()
+
     def get_expr2(self) -> str:
         return self._input2.text().strip()
+
     def get_mode(self) -> str:
         return self._mode
+
     def is_enabled(self) -> bool:
         return self._enabled
+
     def get_width(self) -> int:
         return self._width_spin.value()
+
     def to_state(self) -> dict:
         return {
-            "expr": self.get_expr(), "expr2": self.get_expr2(),
-            "mode": self._mode, "color": self.color,
-            "width": self.get_width(), "enabled": self._enabled,
-            "type": "function",
+            "expr":       self.get_expr(),
+            "expr2":      self.get_expr2(),
+            "mode":       self._mode,
+            "color":      self.color,
+            "width":      self.get_width(),
+            "enabled":    self._enabled,
+            "type":       "function",
+            "eval_loop":  self.eval_loop_panel.to_state(),
         }
+
     def apply_state(self, state: dict):
         self._input.blockSignals(True)
         self._input2.blockSignals(True)
@@ -227,8 +304,18 @@ class FunctionRow(ExprItem):
         self._input.blockSignals(False)
         self._input2.blockSignals(False)
         self._mode_combo.blockSignals(False)
+        if "eval_loop" in state:
+            self.eval_loop_panel.apply_state(state["eval_loop"])
+            enabled = state["eval_loop"].get("enabled", False)
+            self._elp_visible = enabled
+            self._elp_btn.blockSignals(True)
+            self._elp_btn.setChecked(enabled)
+            self._elp_btn.blockSignals(False)
+            self.eval_loop_panel.setVisible(enabled)
+        self._sync_height()
         self._refresh_latex()
         self.changed.emit()
+
     def set_expr(self, expr: str, mode: str = None, expr2: str = None):
         self._input.blockSignals(True)
         self._input2.blockSignals(True)

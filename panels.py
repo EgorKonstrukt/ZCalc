@@ -13,12 +13,15 @@ from param_slider import ParamSliderWidget
 from history import History, AddFunctionCmd, RemoveFunctionCmd, AddParamCmd, RemoveParamCmd
 from expr_item import ExprItem
 from config import Config
+
 _TOOLBAR_BTN_STYLE = (
     "QPushButton{background:#f5f5f5;border:1px solid #ddd;border-radius:4px;"
     "font-size:12px;padding:3px 8px;}"
     "QPushButton:hover{background:#e8e8e8;}"
     "QPushButton:pressed{background:#d0d0d0;}"
 )
+
+
 class DerivativePanel(QGroupBox):
     changed = pyqtSignal()
     def __init__(self, parent=None):
@@ -56,6 +59,8 @@ class DerivativePanel(QGroupBox):
         self._d1.setChecked(state.get("d1", False))
         self._d2.setChecked(state.get("d2", False))
         self._ig.setChecked(state.get("ig", False))
+
+
 class GraphSettings(QGroupBox):
     changed = pyqtSignal()
     infinite_changed = pyqtSignal(bool)
@@ -111,9 +116,21 @@ class GraphSettings(QGroupBox):
                 getattr(self, attr).setValue(s[key])
         if "samples" in s: self._samp.setValue(s["samples"])
         if "infinite" in s: self._infinite.setChecked(s["infinite"])
+
+
 class FunctionPanel(QWidget):
+    """
+    Main left-side panel managing function rows, parameter sliders,
+    derivative overlays, and graph view settings.
+
+    Holds a weak reference to the active Plotter via set_plotter() so that
+    remove_function() can clean up eval-loop chart lines in addition to the
+    standard derivative lines.
+    """
+
     update_requested = pyqtSignal()
     anim_update_requested = pyqtSignal()
+
     def __init__(self, chart: ChartWidget, history: History, parent=None):
         super().__init__(parent)
         self._chart = chart
@@ -124,15 +141,28 @@ class FunctionPanel(QWidget):
         self._param_widgets: Dict[str, ParamSliderWidget] = {}
         self._deriv_lines: Dict[str, object] = {}
         self._items: List[ExprItem] = []
+        self._plotter = None
         self._anim_timer = QTimer(self)
         self._anim_timer.setInterval(self._cfg.anim_interval_ms)
         self._anim_timer.timeout.connect(self.anim_update_requested.emit)
         self._build_ui()
+
+    def set_plotter(self, plotter) -> None:
+        """
+        Register the active Plotter instance.
+
+        Called once by the main window after both FunctionPanel and Plotter
+        are constructed.  Allows remove_function() to delegate eval-loop
+        cleanup to the plotter.
+        """
+        self._plotter = plotter
+
     def set_anim_interval(self, ms: int):
         was_active = self._anim_timer.isActive()
         self._anim_timer.setInterval(ms)
         if was_active:
             self._anim_timer.start()
+
     def _build_ui(self):
         self.setStyleSheet("FunctionPanel{background:#ffffff;}")
         lay = QVBoxLayout(self)
@@ -189,12 +219,14 @@ class FunctionPanel(QWidget):
         bl.addWidget(self.deriv_panel)
         bl.addWidget(self.settings)
         lay.addWidget(bottom)
+
     def _prompt_add_param(self):
         existing = set(self._param_widgets.keys())
         candidates = [c for c in "abcdefghijklmnopqrstuvwxyz" if c not in existing]
         if not candidates:
             return
         self._history.push(AddParamCmd(self, candidates[0]))
+
     def add_param(self, name: str, record: bool = True, state: dict = None):
         if name in self._params:
             return
@@ -213,6 +245,7 @@ class FunctionPanel(QWidget):
         self._items.append(w)
         self._vlay.insertWidget(self._vlay.count() - 1, w)
         self.update_requested.emit()
+
     def _on_param_renamed(self, old_name: str, new_name: str):
         if new_name in self._params and new_name != old_name:
             w = self._param_widgets.get(old_name)
@@ -230,6 +263,7 @@ class FunctionPanel(QWidget):
         w.removed.connect(lambda item: self._history.push(
             RemoveParamCmd(self, item.name, self._param_widgets[item.name].to_state())))
         self.update_requested.emit()
+
     def remove_param(self, name: str, record: bool = True):
         if name not in self._param_widgets:
             return
@@ -240,6 +274,7 @@ class FunctionPanel(QWidget):
         w.deleteLater()
         self._params.pop(name, None)
         self.update_requested.emit()
+
     def _on_param_changed(self, name: str, val: float):
         self._params[name] = val
         any_anim = any(w._animating for w in self._param_widgets.values())
@@ -250,6 +285,7 @@ class FunctionPanel(QWidget):
             if self._anim_timer.isActive():
                 self._anim_timer.stop()
             self.update_requested.emit()
+
     def add_function_from_state(self, state: dict) -> FunctionRow:
         idx = len(self.func_rows)
         row = FunctionRow(idx, self)
@@ -268,12 +304,14 @@ class FunctionPanel(QWidget):
         self._sync_deriv_sources()
         self.update_requested.emit()
         return row
+
     def bind_chart(self, chart: ChartWidget):
         self._chart = chart
         for i, row in enumerate(self.func_rows):
             if row.chart_line is None:
                 line = self._chart.plot(label=f"f{i+1}", color=row.color, width=row.get_width())
                 row.chart_line = line
+
     def remove_function(self, row: FunctionRow, record: bool = True):
         if row not in self.func_rows:
             return
@@ -283,6 +321,8 @@ class FunctionPanel(QWidget):
             k = f"{id(row)}{sfx}"
             if k in self._deriv_lines and self._chart is not None:
                 self._chart.removeItem(self._deriv_lines.pop(k))
+        if self._plotter is not None:
+            self._plotter._remove_eval_loop_state(id(row))
         self.func_rows.remove(row)
         if row in self._items:
             self._items.remove(row)
@@ -290,6 +330,7 @@ class FunctionPanel(QWidget):
         row.deleteLater()
         self._sync_deriv_sources()
         self.update_requested.emit()
+
     def _add_preset(self):
         name = self._preset_combo.currentText()
         if name in PRESETS:
@@ -298,6 +339,7 @@ class FunctionPanel(QWidget):
             state = {"expr": expr, "mode": norm_mode, "expr2": expr2 or "",
                      "color": COLORS[len(self.func_rows) % len(COLORS)], "width": 2, "enabled": True, "type": "function"}
             self._history.push(AddFunctionCmd(self, state))
+
     def _clear_all(self):
         self._anim_timer.stop()
         for row in list(self.func_rows):
@@ -310,11 +352,14 @@ class FunctionPanel(QWidget):
         else:
             self._deriv_lines.clear()
         self.update_requested.emit()
+
     def _sync_deriv_sources(self):
         self.deriv_panel.update_sources([f"f{i+1}" for i in range(len(self.func_rows))])
+
     def get_params(self) -> dict:           return dict(self._params)
     def get_deriv_lines(self) -> dict:      return self._deriv_lines
     def get_anim_t(self) -> float:          return 0.0
+
     def to_state(self) -> dict:
         return {
             "functions": [r.to_state() for r in self.func_rows],
@@ -322,6 +367,7 @@ class FunctionPanel(QWidget):
             "settings":  self.settings.to_state(),
             "derivs":    self.deriv_panel.to_state(),
         }
+
     def apply_state(self, state: dict):
         self._clear_all()
         for n, ps in state.get("params", {}).items():
