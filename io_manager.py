@@ -8,10 +8,12 @@ if TYPE_CHECKING:
 
 
 class IoManager:
+    """Handles save/load of .zcalc session files, including script panel state."""
+
     FILE_FILTER = "ZCalc Session (*.zcalc);;JSON (*.json);;All Files (*)"
 
     def __init__(self, panel: "FunctionPanel", parent=None):
-        self._panel  = panel
+        self._panel = panel
         self._parent = parent
         self._current_path: str = ""
 
@@ -23,7 +25,8 @@ class IoManager:
 
     def save_as(self):
         path, _ = QFileDialog.getSaveFileName(
-            self._parent, "Save Session", "", self.FILE_FILTER)
+            self._parent, "Save Session", "", self.FILE_FILTER
+        )
         if path:
             if not (path.endswith(".zcalc") or path.endswith(".json")):
                 path += ".zcalc"
@@ -32,28 +35,39 @@ class IoManager:
 
     def load(self):
         path, _ = QFileDialog.getOpenFileName(
-            self._parent, "Open Session", "", self.FILE_FILTER)
+            self._parent, "Open Session", "", self.FILE_FILTER
+        )
         if path:
             self._read(path)
 
+    def _script_panel(self):
+        ctx = getattr(self._panel, "_context", None)
+        if ctx is None:
+            return None
+        return ctx.get_service("script_panel")
+
     def _write(self, path: str):
+        sp = self._script_panel()
         doc = {
-            "app": APP_NAME,
+            "app":     APP_NAME,
             "version": APP_VERSION,
-            "state": self._panel.to_state(),
+            "state":   self._panel.to_state(),
+            "scripts": sp.to_state() if sp is not None else [],
         }
         try:
             with open(path, "w", encoding="utf-8") as f:
                 json.dump(doc, f, indent=2, ensure_ascii=False)
-        except Exception as e:
-            QMessageBox.critical(self._parent, "Save Error", str(e))
+        except Exception as exc:
+            QMessageBox.critical(self._parent, "Save Error", str(exc))
 
     def _read(self, path: str):
         try:
             with open(path, "r", encoding="utf-8") as f:
                 doc = json.load(f)
-            state = doc.get("state", doc)
-            self._panel.apply_state(state)
+            self._panel.apply_state(doc.get("state", doc))
+            sp = self._script_panel()
+            if sp is not None:
+                sp.apply_state(doc.get("scripts", []))
             self._current_path = path
-        except Exception as e:
-            QMessageBox.critical(self._parent, "Load Error", str(e))
+        except Exception as exc:
+            QMessageBox.critical(self._parent, "Load Error", str(exc))

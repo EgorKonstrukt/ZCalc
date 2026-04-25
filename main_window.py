@@ -8,7 +8,8 @@ from PyQt5.QtCore import QTimer, Qt
 from PyQt5.QtGui import QKeySequence
 from PyQt5.QtWidgets import (
     QAction, QApplication, QHBoxLayout, QLabel,
-    QMainWindow, QSplitter, QStatusBar, QWidget,
+    QMainWindow, QScrollArea, QSplitter, QStatusBar,
+    QVBoxLayout, QWidget,
 )
 
 from pyqt5_chart_widget import ChartWidget
@@ -77,9 +78,9 @@ class MainWindow(QMainWindow):
             state_dir=_BASE_DIR,
         )
         self._build_menu()
-        self._context.register_menu("File", self._file_menu)
-        self._context.register_menu("Edit", self._edit_menu)
-        self._context.register_menu("View", self._view_menu)
+        self._context.register_menu("File",    self._file_menu)
+        self._context.register_menu("Edit",    self._edit_menu)
+        self._context.register_menu("View",    self._view_menu)
         self._context.register_menu("Plugins", self._plugin_menu)
         self._plugin_manager.initialise(self._context)
         self._integrate_plugins()
@@ -97,6 +98,7 @@ class MainWindow(QMainWindow):
                 self._add_sidebar_widget(widget)
 
     def _add_sidebar_widget(self, widget: QWidget) -> None:
+        """Insert a SidebarPlugin widget into the visible sidebar scroll area."""
         self._bottom_area.layout().addWidget(widget)
 
     def _build_ui(self) -> None:
@@ -144,20 +146,27 @@ class MainWindow(QMainWindow):
         rl.setSpacing(0)
         rl.addWidget(self._chart)
 
+        self._bottom_area = QWidget()
+        self._bottom_area.setObjectName("sidebar_area")
+        ba_lay = QVBoxLayout(self._bottom_area)
+        ba_lay.setContentsMargins(0, 0, 0, 0)
+        ba_lay.setSpacing(0)
+
+        self._sidebar_scroll = QScrollArea()
+        self._sidebar_scroll.setWidgetResizable(True)
+        self._sidebar_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self._sidebar_scroll.setWidget(self._bottom_area)
+        self._sidebar_scroll.setStyleSheet("QScrollArea{border:none;}")
+        self._sidebar_scroll.setMaximumHeight(360)
+        self._sidebar_scroll.hide()
+
         self._left_wrap = QWidget()
         self._left_wrap.setFixedWidth(self._cfg.panel_width)
-        from PyQt5.QtWidgets import QVBoxLayout
         ll = QVBoxLayout(self._left_wrap)
         ll.setContentsMargins(0, 0, 0, 0)
         ll.setSpacing(0)
-        ll.addWidget(self._panel)
-
-        self._bottom_area = QWidget()
-        self._bottom_area.setObjectName("sidebar_area")
-        from PyQt5.QtWidgets import QVBoxLayout as VL
-        ba_lay = VL(self._bottom_area)
-        ba_lay.setContentsMargins(0, 0, 0, 0)
-        ba_lay.setSpacing(0)
+        ll.addWidget(self._panel, 1)
+        ll.addWidget(self._sidebar_scroll)
 
         splitter.addWidget(self._left_wrap)
         splitter.addWidget(right)
@@ -180,6 +189,11 @@ class MainWindow(QMainWindow):
         )
         self.setStatusBar(sb)
 
+    def _add_sidebar_widget(self, widget: QWidget) -> None:
+        """Insert a SidebarPlugin widget and make the sidebar scroll area visible."""
+        self._bottom_area.layout().addWidget(widget)
+        self._sidebar_scroll.show()
+
     def _build_menu(self) -> None:
         mb = self.menuBar()
 
@@ -193,12 +207,12 @@ class MainWindow(QMainWindow):
             return a
 
         self._file_menu = mb.addMenu("&File")
-        self._file_menu.addAction(act("&New", "Ctrl+N", self._new_session))
-        self._file_menu.addAction(act("&Open...", "Ctrl+O", self._io.load))
-        self._file_menu.addAction(act("&Save", "Ctrl+S", self._io.save))
+        self._file_menu.addAction(act("&New",       "Ctrl+N",       self._new_session))
+        self._file_menu.addAction(act("&Open...",   "Ctrl+O",       self._io.load))
+        self._file_menu.addAction(act("&Save",      "Ctrl+S",       self._io.save))
         self._file_menu.addAction(act("Save &As...", "Ctrl+Shift+S", self._io.save_as))
         self._file_menu.addSeparator()
-        self._file_menu.addAction(act("&Quit", "Ctrl+Q", QApplication.quit))
+        self._file_menu.addAction(act("&Quit",      "Ctrl+Q",       QApplication.quit))
 
         self._edit_menu = mb.addMenu("&Edit")
         self._undo_act = act("&Undo", "Ctrl+Z", self._undo)
@@ -207,8 +221,8 @@ class MainWindow(QMainWindow):
         self._edit_menu.addAction(self._redo_act)
 
         self._view_menu = mb.addMenu("&View")
-        self._view_menu.addAction(act("&Autofit", "Ctrl+F", self._chart.autofit))
-        self._view_menu.addAction(act("&Clear All", None, self._panel._clear_all))
+        self._view_menu.addAction(act("&Autofit",   "Ctrl+F", self._chart.autofit))
+        self._view_menu.addAction(act("&Clear All", None,     self._panel._clear_all))
         self._view_menu.addSeparator()
         self._ruler_action = QAction("&Ruler", self)
         self._ruler_action.setShortcut(QKeySequence("Ctrl+R"))
@@ -282,7 +296,6 @@ class MainWindow(QMainWindow):
         self._upd_timer.start(self._cfg.replot_delay_ms)
 
     def _replot(self) -> None:
-        t0 = time.perf_counter()
         result = self._plotter.replot()
         if result:
             total, x_min, x_max, n_fn = result
