@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import os
 import time
 from pathlib import Path
 
@@ -13,19 +12,18 @@ from PyQt5.QtWidgets import (
 
 from pyqt5_chart_widget import ChartWidget
 from constants import APP_NAME, APP_VERSION
-from panels import FunctionPanel
+from core.panels import FunctionPanel
 from plotter import Plotter
 from history import History
 from io_manager import IoManager
 from config import Config
 from settings_dialog import SettingsDialog
-from core.app_context import AppContext
-from core.plugin_manager import PluginManager
-from core.plugin_manager_dialog import PluginManagerDialog
-from core.plugin_base import PanelPlugin, SidebarPlugin
+from core.plugins.app_context import AppContext
+from core.plugins.plugin_manager import PluginManager
+from core.plugins.plugin_manager_dialog import PluginManagerDialog
 import math_engine
 
-_BASE_DIR = Path(__file__).parent
+_BASE_DIR    = Path(__file__).parent
 _PLUGINS_DIR = _BASE_DIR / "plugins"
 
 _INITIAL_FUNCTION = {
@@ -37,24 +35,16 @@ _EMPTY_FUNCTION = {
     "color": "#3498db", "width": 2, "enabled": True, "type": "function",
 }
 
+from core.plugins.settings_registry import SettingsRegistry
 
 class MainWindow(QMainWindow):
-    """
-    Main application window for ZCalc.
-
-    Plugin lifecycle:
-        PluginManager discovers .dll files (or dev directories) inside
-        plugins/ and registers PanelPlugin / SidebarPlugin instances with
-        the FunctionPanel via register_plugin_item_type().
-    """
-
     def __init__(self) -> None:
         super().__init__()
         self._cfg = Config()
         math_engine.set_use_numpy(self._cfg.use_numpy)
         self.setWindowTitle(f"{APP_NAME} {APP_VERSION}")
         self.resize(1280, 820)
-        self._history = History()
+        self._history  = History()
         self._fps_times = []
         self._build_ui()
         self._plotter = Plotter(self._chart, self._panel)
@@ -81,12 +71,30 @@ class MainWindow(QMainWindow):
         self._context.register_menu("Edit",    self._edit_menu)
         self._context.register_menu("View",    self._view_menu)
         self._context.register_menu("Plugins", self._plugin_menu)
-        self._plugin_manager.initialise(self._context)
-        self._integrate_plugins()
+
         self._panel.settings.infinite_changed.connect(self._on_infinite_changed)
         self._chart.onViewportChanged(self._on_viewport_changed)
         self._apply_config()
         self._panel.add_function_from_state(_INITIAL_FUNCTION)
+
+        self._settings_registry = SettingsRegistry()
+        self._context.register_service("settings_registry", self._settings_registry)
+
+        self._plugin_manager.initialise(self._context)
+        self._integrate_plugins()
+
+    def _open_settings(self) -> None:
+        dlg = SettingsDialog(self._context, self)
+        dlg.settings_applied.connect(self._apply_config)
+        dlg.exec_()
+
+    def closeEvent(self, event) -> None:
+        self._upd_timer.stop()
+        self._plugin_manager.shutdown(self._context)
+        console = self._context.get_service("script_console")
+        if console is not None:
+            console.close()
+        super().closeEvent(event)
 
     def _integrate_plugins(self) -> None:
         for p in self._plugin_manager.panel_plugins():
@@ -95,6 +103,21 @@ class MainWindow(QMainWindow):
             widget = sp.create_panel(self._context)
             if widget is not None:
                 self._add_sidebar_widget(widget)
+        self._wire_console_menu()
+
+    def _wire_console_menu(self) -> None:
+        console = self._context.get_service("script_console")
+        if console is None:
+            return
+        act = QAction("Script &Console", self)
+        act.setShortcut(QKeySequence("Ctrl+`"))
+        act.setShortcutContext(Qt.ApplicationShortcut)
+        act.setCheckable(True)
+        act.setChecked(False)
+        act.triggered.connect(lambda checked: console.setVisible(checked))
+        console.visibilityChanged.connect(act.setChecked)
+        self.addAction(act)
+        self._view_menu.addAction(act)
 
     def _add_sidebar_widget(self, widget: QWidget) -> None:
         self._bottom_area.layout().addWidget(widget)
@@ -120,22 +143,17 @@ class MainWindow(QMainWindow):
 
         self._ruler_label = QLabel()
         self._ruler_label.setAlignment(Qt.AlignRight)
-        self._ruler_label.setStyleSheet(
-            "QLabel{color:#c0392b;font-size:11px;font-family:monospace;}"
-        )
+
         self._ruler_label.setFixedWidth(320)
         self._ruler_label.setVisible(False)
 
         self._fps_label = QLabel("-- fps")
         self._fps_label.setAlignment(Qt.AlignRight)
         self._fps_label.setFixedWidth(70)
-        self._fps_label.setStyleSheet("QLabel{color:#888;font-size:11px;}")
 
         self._vp_label = QLabel()
         self._vp_label.setAlignment(Qt.AlignRight)
-        self._vp_label.setStyleSheet(
-            "QLabel{color:#888;font-size:10px;font-family:monospace;}"
-        )
+
         self._vp_label.setFixedWidth(340)
 
         right = QWidget()
@@ -237,10 +255,6 @@ class MainWindow(QMainWindow):
         self._left_wrap.setFixedWidth(self._cfg.panel_width)
         self._fps_label.setVisible(self._cfg.show_fps)
 
-    def _open_settings(self) -> None:
-        dlg = SettingsDialog(self)
-        dlg.settings_applied.connect(self._apply_config)
-        dlg.exec_()
 
     def _undo(self) -> None:
         self._history.undo()
@@ -273,7 +287,7 @@ class MainWindow(QMainWindow):
     def _on_ruler_changed(self) -> None:
         r = self._ruler
         self._ruler_label.setText(
-            f"Ruler  d={r.distance:.4g}  dx={r.dx:.4g}  dy={r.dy:.4g}  ∠{r.angle_deg:.1f}°"
+            f"Ruler  d={r.distance:.4g}  dx={r.dx:.4g}  dy={r.dy:.4g}  angle={r.angle_deg:.1f}deg"
         )
 
     def _schedule(self) -> None:
@@ -284,7 +298,7 @@ class MainWindow(QMainWindow):
         if result:
             total, x_min, x_max, n_fn = result
             self._info_bar.setText(
-                f"~{total:,} pts  x∈[{x_min:.2f}, {x_max:.2f}]  {n_fn} fn"
+                f"~{total:,} pts  x=[{x_min:.2f}, {x_max:.2f}]  {n_fn} fn"
             )
         if self._cfg.show_fps:
             now = time.perf_counter()

@@ -11,28 +11,18 @@ if TYPE_CHECKING:
 _DEFAULT_COLOR = "#3498db"
 _DEFAULT_WIDTH = 2
 _MIN_INTERVAL_MS = 8
+_FORCE_REPAINT_INTERVAL_MS = 16
 
 
 def _force_repaint_widget(w):
     if w is None:
         return
-    try:
-        scene = None
-        if hasattr(w, "scene") and callable(w.scene):
-            scene = w.scene()
-        if scene is not None:
-            scene.update()
-        vp = None
-        if hasattr(w, "viewport") and callable(w.viewport):
-            vp = w.viewport()
-        if vp is not None:
-            vp.update()
-            vp.repaint()
-        else:
-            w.update()
-            w.repaint()
-    except Exception:
-        pass
+    w.update()
+    w.repaint()
+    vp = getattr(w, "viewport", None)
+    if callable(vp):
+        vp().update()
+        vp().repaint()
 
 
 class PlotWindow(QDialog):
@@ -50,8 +40,12 @@ class PlotWindow(QDialog):
         )
         lay.addWidget(self._chart)
         self._lines: Dict[str, Any] = {}
+        self._repaint_timer = QTimer(self)
+        self._repaint_timer.setInterval(_FORCE_REPAINT_INTERVAL_MS)
+        self._repaint_timer.timeout.connect(self._force_repaint)
+        self._repaint_timer.start()
 
-    def _repaint(self):
+    def _force_repaint(self):
         _force_repaint_widget(self._chart)
 
     @property
@@ -71,7 +65,7 @@ class PlotWindow(QDialog):
             line.setLabel(label)
         line.setData(xs=list(xs), ys=list(ys))
         line.setVisible(True)
-        self._repaint()
+        _force_repaint_widget(self._chart)
         return line
 
     def scatter(self, xs: List[float], ys: List[float], label: str = "",
@@ -84,7 +78,7 @@ class PlotWindow(QDialog):
         line.pen.setColor(QColor(color))
         line.setData(xs=list(xs), ys=list(ys))
         line.setVisible(True)
-        self._repaint()
+        _force_repaint_widget(self._chart)
         return line
 
     def clear(self):
@@ -94,7 +88,7 @@ class PlotWindow(QDialog):
             except Exception:
                 pass
         self._lines.clear()
-        self._repaint()
+        _force_repaint_widget(self._chart)
 
     def set_title(self, title: str):
         self.setWindowTitle(title)
@@ -107,6 +101,10 @@ class PlotWindow(QDialog):
 
     def autofit(self):
         self._chart.autofit()
+
+    def closeEvent(self, event):
+        self._repaint_timer.stop()
+        super().closeEvent(event)
 
 
 class AnimHandle:
@@ -141,14 +139,10 @@ class ScriptAPI:
         return self._ctx.chart
 
     def _force_chart_update(self):
-        _force_repaint_widget(self._get_chart())
-
-    def _force_all_windows_update(self):
-        for win in self._plot_windows:
-            try:
-                win._repaint()
-            except Exception:
-                pass
+        chart = self._get_chart()
+        if chart is None:
+            return
+        _force_repaint_widget(chart)
 
     def plot(self, xs, ys, label: str = "", color: str = _DEFAULT_COLOR,
              width: int = _DEFAULT_WIDTH) -> Any:
@@ -177,7 +171,13 @@ class ScriptAPI:
         ys = [r * math.sin(t) for t, r in zip(thetas, rs)]
         return self.plot(xs, ys, label=label, color=color, width=width)
 
-    def vline(self, x: float, label: str = "", color: str = "#e74c3c", width: int = 1) -> Any:
+    def bar(self, categories: List, values: List[float], label: str = "",
+            color: str = "#3498db") -> None:
+        xs = list(range(len(values)))
+        self.plot(xs, values, label=label, color=color, width=10)
+
+    def vline(self, x: float, label: str = "", color: str = "#e74c3c",
+              width: int = 1) -> Any:
         key = f"_vl_{id(self._row)}_{label or x}"
         lines = self._row._script_lines
         if key not in lines:
@@ -190,7 +190,8 @@ class ScriptAPI:
         self._force_chart_update()
         return lines[key]
 
-    def hline(self, y: float, label: str = "", color: str = "#e74c3c", width: int = 1) -> Any:
+    def hline(self, y: float, label: str = "", color: str = "#e74c3c",
+              width: int = 1) -> Any:
         key = f"_hl_{id(self._row)}_{label or y}"
         lines = self._row._script_lines
         if key not in lines:
@@ -277,7 +278,7 @@ class ScriptAPI:
         interval = max(_MIN_INTERVAL_MS, 1000 // max(1, fps))
         record: Dict = {"elapsed_ms": 0}
         self._anim_records[handle_id] = record
-        timer = QTimer(self._row)
+        timer = QTimer()
         timer.setInterval(interval)
 
         def _tick():
@@ -299,7 +300,11 @@ class ScriptAPI:
                 self._anim_timers.pop(handle_id, None)
                 return
             self._force_chart_update()
-            self._force_all_windows_update()
+            for win in self._plot_windows:
+                try:
+                    _force_repaint_widget(win.chart)
+                except Exception:
+                    pass
 
         timer.timeout.connect(_tick)
         self._anim_timers[handle_id] = timer
@@ -311,13 +316,13 @@ class ScriptAPI:
             self._stop_anim(handle_id)
 
     def schedule_once(self, callback: Callable, delay_ms: int = 0):
-        timer = QTimer(self._row)
+        timer = QTimer()
         timer.setSingleShot(True)
         timer.setInterval(max(0, delay_ms))
         def _run():
             try:
                 callback()
-            except Exception:
+            except Exception as exc:
                 import traceback as _tb
                 self._row._log_error(_tb.format_exc())
             self._force_chart_update()

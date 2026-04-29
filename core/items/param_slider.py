@@ -5,7 +5,7 @@ from PyQt5.QtWidgets import (
     QPushButton, QLineEdit, QComboBox, QSizePolicy, QFrame
 )
 from PyQt5.QtCore import Qt, QTimer, pyqtSignal
-from expr_item import ExprItem, ITEM_HEIGHT
+from core.items.expr_item import ExprItem, ITEM_HEIGHT
 _SPEEDS = [0.25, 0.5, 1.0, 2.0, 4.0]
 _DEFAULT_SPEED = 1.0
 _TICK_MS = 16
@@ -58,7 +58,6 @@ class ParamSliderWidget(ExprItem):
         outer.setSpacing(0)
         bar = QFrame()
         bar.setFixedWidth(6)
-        bar.setStyleSheet("background:#95a5a6;border-radius:3px;")
         outer.addWidget(bar)
         inner = QVBoxLayout()
         inner.setContentsMargins(8, 3, 4, 3)
@@ -69,20 +68,11 @@ class ParamSliderWidget(ExprItem):
         self._play_btn.setCheckable(True)
         self._play_btn.setFixedWidth(44)
         self._play_btn.setFixedHeight(20)
-        self._play_btn.setStyleSheet(
-            "QPushButton{background:#3498db;color:white;border:none;border-radius:3px;font-size:10px;}"
-            "QPushButton:checked{background:#e74c3c;}"
-        )
         self._play_btn.toggled.connect(self._on_play_toggled)
         self._name_edit = QLineEdit(self.name)
         self._name_edit.setFixedWidth(32)
         self._name_edit.setFixedHeight(20)
         self._name_edit.setAlignment(Qt.AlignCenter)
-        self._name_edit.setStyleSheet(
-            "QLineEdit{border:1px solid #ccc;border-radius:3px;font-weight:bold;"
-            "font-size:12px;padding:0px;background:#f9f9f9;}"
-            "QLineEdit:focus{border:1px solid #3498db;background:white;}"
-        )
         self._name_edit.editingFinished.connect(self._on_name_changed)
         eq_lbl = QLabel("=")
         eq_lbl.setFixedWidth(8)
@@ -91,15 +81,12 @@ class ParamSliderWidget(ExprItem):
         self._val_spin.setValue(self._val)
         self._val_spin.setDecimals(3)
         self._val_spin.setFixedWidth(80)
-        self._val_spin.setStyleSheet("QDoubleSpinBox{border:none;font-size:12px;}")
         self._val_spin.valueChanged.connect(self._on_spin)
         self._speed_combo = QComboBox()
         for s in _SPEEDS:
             self._speed_combo.addItem(f"x{s}")
         self._speed_combo.setCurrentIndex(_SPEEDS.index(_DEFAULT_SPEED))
-        self._speed_combo.setFixedWidth(52)
-        self._speed_combo.setFixedHeight(20)
-        self._speed_combo.setStyleSheet("QComboBox{font-size:10px;border:none;background:#f0f0f0;}")
+
         self._speed_combo.currentIndexChanged.connect(lambda i: setattr(self, '_speed', _SPEEDS[i]))
         rm = self._mk_remove_btn()
         for w in (self._play_btn, self._name_edit, eq_lbl, self._val_spin, self._speed_combo, rm):
@@ -119,20 +106,11 @@ class ParamSliderWidget(ExprItem):
         row3 = QHBoxLayout()
         row3.setSpacing(4)
         mode_lbl = QLabel("Mode:")
-        mode_lbl.setStyleSheet("QLabel{font-size:10px;color:#888;}")
-        mode_lbl.setFixedWidth(34)
         self._mode_combo = QComboBox()
         for m in _ANIM_MODES:
             self._mode_combo.addItem(m)
-        self._mode_combo.setFixedHeight(18)
-        self._mode_combo.setStyleSheet(
-            "QComboBox{font-size:10px;border:1px solid #ddd;border-radius:3px;"
-            "background:#f8f8f8;padding:0px 3px;}"
-            "QComboBox:hover{border-color:#3498db;}"
-        )
         self._mode_combo.currentTextChanged.connect(self._on_mode_changed)
         self._mode_tip = QLabel(_MODE_TIPS["loop"])
-        self._mode_tip.setStyleSheet("QLabel{font-size:9px;color:#aaa;}")
         self._mode_tip.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         row3.addWidget(mode_lbl)
         row3.addWidget(self._mode_combo)
@@ -167,8 +145,6 @@ class ParamSliderWidget(ExprItem):
         s.setRange(-9999, 9999)
         s.setValue(val)
         s.setDecimals(1)
-        s.setFixedWidth(52)
-        s.setStyleSheet("QDoubleSpinBox{font-size:10px;border:none;}")
         s.valueChanged.connect(self._on_range)
         return s
     def _to_slider(self, v: float) -> int:

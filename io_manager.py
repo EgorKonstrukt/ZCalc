@@ -4,7 +4,7 @@ from PyQt5.QtWidgets import QFileDialog, QMessageBox
 from constants import APP_NAME, APP_VERSION
 
 if TYPE_CHECKING:
-    from panels import FunctionPanel
+    from core.panels import FunctionPanel
 
 
 class IoManager:

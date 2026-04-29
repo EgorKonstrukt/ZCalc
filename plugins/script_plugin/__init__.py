@@ -1,17 +1,17 @@
 from __future__ import annotations
 from typing import TYPE_CHECKING
 
-from core.plugin_base import PanelPlugin, PluginMeta
+from core.plugins.plugin_base import PanelPlugin, PluginMeta
 
 if TYPE_CHECKING:
-    from core.app_context import AppContext
+    from core import AppContext
     from PyQt5.QtWidgets import QWidget
 
 PLUGIN_META = PluginMeta(
-    id="zcalc.script",
+    id="zarcalc.script",
     name="Script",
     version="1.1.0",
-    author="ZCalc",
+    author="ZarCalc",
     description="Python script item with chart/animation integration and profiler.",
     dependencies=[],
 )

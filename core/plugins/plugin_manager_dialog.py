@@ -9,15 +9,12 @@ from PyQt5.QtWidgets import (
 )
 
 if TYPE_CHECKING:
-    from core.plugin_manager import PluginManager
+    from core.plugins.plugin_manager import PluginManager
 
 _HEADER_STYLE = (
     "QLabel{font-size:14px;font-weight:bold;color:#1a1a2e;}"
 )
-_CARD_STYLE = (
-    "QFrame#plugin_card{background:white;border:1px solid #e0e0e0;"
-    "border-radius:6px;margin:2px;}"
-)
+
 _META_STYLE = "QLabel{font-size:11px;color:#555;}"
 _NAME_STYLE = "QLabel{font-size:13px;font-weight:bold;color:#222;}"
 _BTN_ENABLE = (
@@ -38,7 +35,7 @@ _ERR_STYLE = "QLabel{color:#e74c3c;font-size:10px;}"
 
 
 def _kind_tag(plugin) -> str:
-    from core.plugin_base import PanelPlugin, SidebarPlugin, MenuPlugin
+    from core.plugins.plugin_base import PanelPlugin, SidebarPlugin, MenuPlugin
     if isinstance(plugin, PanelPlugin):
         return "Panel item"
     if isinstance(plugin, SidebarPlugin):
@@ -60,7 +57,6 @@ class PluginManagerDialog(QDialog):
         self.setMinimumWidth(520)
         self.setMinimumHeight(400)
         self.setModal(True)
-        self.setStyleSheet("QDialog{background:#f5f6fa;}")
         self._build_ui()
 
     def _build_ui(self) -> None:
@@ -69,7 +65,6 @@ class PluginManagerDialog(QDialog):
         root.setSpacing(10)
 
         header = QLabel("Plugin Manager")
-        header.setStyleSheet(_HEADER_STYLE)
         root.addWidget(header)
 
         sep = QFrame()
@@ -80,10 +75,8 @@ class PluginManagerDialog(QDialog):
         self._scroll = QScrollArea()
         self._scroll.setWidgetResizable(True)
         self._scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
-        self._scroll.setStyleSheet("QScrollArea{border:none;background:transparent;}")
 
         self._list_widget = QWidget()
-        self._list_widget.setStyleSheet("background:transparent;")
         self._list_layout = QVBoxLayout(self._list_widget)
         self._list_layout.setContentsMargins(0, 0, 0, 0)
         self._list_layout.setSpacing(6)
@@ -119,7 +112,6 @@ class PluginManagerDialog(QDialog):
     def _make_card(self, rec) -> QFrame:
         card = QFrame()
         card.setObjectName("plugin_card")
-        card.setStyleSheet(_CARD_STYLE)
 
         lay = QHBoxLayout(card)
         lay.setContentsMargins(12, 10, 12, 10)

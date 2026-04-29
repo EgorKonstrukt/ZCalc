@@ -2,11 +2,11 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any, Dict, List, Optional, Union
+from typing import TYPE_CHECKING, List, Union
 
 if TYPE_CHECKING:
     from PyQt5.QtWidgets import QWidget
-    from core.app_context import AppContext
+    from core.plugins.app_context import AppContext
 
 
 @dataclass

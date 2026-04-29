@@ -1,7 +1,7 @@
 import math
 
-APP_NAME = "ZCalc"
-APP_VERSION = "1.4.1"
+APP_NAME = "ZarCalc"
+APP_VERSION = "1.5.0"
 
 COLORS = [
     "#e74c3c", "#3498db", "#2ecc71", "#f39c12", "#9b59b6",
@@ -148,6 +148,8 @@ DEFAULT_YMIN    =  -8.0
 DEFAULT_YMAX    =   8.0
 DEFAULT_TMIN    = -2 * math.pi
 DEFAULT_TMAX    =  2 * math.pi
+DEFAULT_MINPTS  = 800
+DEFAULT_MAXPTS  = 80000
 DEFAULT_SAMPLES = 800
 ANIM_INTERVAL_MS = 30
 ANIM_STEP = 0.06

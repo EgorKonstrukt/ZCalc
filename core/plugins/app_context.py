@@ -1,11 +1,11 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any, Callable, Dict, List, Optional
+from typing import TYPE_CHECKING, Any, Dict, Optional
 
 if TYPE_CHECKING:
     from PyQt5.QtWidgets import QMainWindow, QMenu
     from pyqt5_chart_widget import ChartWidget
-    from panels import FunctionPanel
+    from core.items import FunctionPanel
     from history import History
     from config import Config
 

@@ -3,13 +3,12 @@ from __future__ import annotations
 import importlib
 import importlib.util
 import logging
-import os
 import sys
 import zipimport
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple, Type
+from typing import Dict, List, Optional
 
-from core.plugin_base import AnyPlugin, PluginMeta
+from core.plugins.plugin_base import AnyPlugin, PluginMeta
 
 log = logging.getLogger(__name__)
 
@@ -43,7 +42,7 @@ class PluginLoader:
     Discovers, loads, and unloads plugins from a plugins directory.
 
     Plugin distribution format (.dll on Windows, .so on Linux/macOS, but
-    distributed as .dll by convention in ZCalc):
+    distributed as .dll by convention in ZarCalc):
 
         A .dll file is actually a zip archive containing Python source.
         The archive must have a top-level __init__.py that exports:

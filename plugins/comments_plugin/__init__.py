@@ -1,12 +1,12 @@
 from __future__ import annotations
 
-from core.plugin_base import PanelPlugin, PluginMeta
+from core.plugins.plugin_base import PanelPlugin, PluginMeta
 
 PLUGIN_META = PluginMeta(
-    id="zcalc.comments",
+    id="zarcalc.comments",
     name="Comments",
     version="1.0.0",
-    author="ZCalc",
+    author="ZarCalc",
     description="Add text comment items to the expression list.",
 )
 

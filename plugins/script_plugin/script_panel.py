@@ -1,6 +1,5 @@
 from __future__ import annotations
-import copy
-from typing import List, Optional, TYPE_CHECKING
+from typing import List, TYPE_CHECKING
 
 from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QPushButton,
@@ -9,7 +8,7 @@ from PyQt5.QtWidgets import (
 from PyQt5.QtCore import pyqtSignal, Qt
 
 if TYPE_CHECKING:
-    from core.app_context import AppContext
+    from core import AppContext
 
 from .script_row import ScriptRow
 from .script_history import AddScriptCmd, RemoveScriptCmd

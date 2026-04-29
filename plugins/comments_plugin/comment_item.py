@@ -1,13 +1,9 @@
 from __future__ import annotations
 
-from PyQt5.QtCore import Qt, pyqtSignal
-from PyQt5.QtGui import QColor, QFont
+from PyQt5.QtCore import pyqtSignal
 from PyQt5.QtWidgets import (
-    QColorDialog, QFrame, QHBoxLayout, QLabel,
-    QPushButton, QSizePolicy, QTextEdit, QVBoxLayout, QWidget,
-)
-
-from expr_item import ExprItem
+    QFrame, QHBoxLayout, QLabel,
+    QPushButton, QSizePolicy, QTextEdit, QVBoxLayout, )
 
 _COLORS = [
     ("#fff9c4", "#f9a825"),

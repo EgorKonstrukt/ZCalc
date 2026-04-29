@@ -7,17 +7,18 @@ _CONFIG_PATH = os.path.join(
 )
 
 _DEFAULTS: Dict[str, Any] = {
-    "target_fps":      60,
-    "anim_samples":    400,
-    "static_samples":  800,
-    "replot_delay_ms": 35,
-    "theme":           "light",
-    "show_fps":        True,
-    "antialiasing":    True,
-    "line_aa":         True,
-    "panel_width":     440,
-    "use_numpy":       True,
-    "script_editor":   "",
+    "target_fps":       60,
+    "anim_samples":     400,
+    "static_samples":   800,
+    "replot_delay_ms":  35,
+    "theme":            "light",
+    "show_fps":         True,
+    "antialiasing":     True,
+    "line_aa":          True,
+    "panel_width":      440,
+    "use_numpy":        True,
+    "script_editor":    "",
+    "script_timeout_s": 5,
 }
 
 
@@ -61,49 +62,28 @@ class Config:
         self._data = dict(_DEFAULTS)
 
     @property
-    def target_fps(self) -> int:
-        return self.get("target_fps")
-
+    def target_fps(self) -> int:        return self.get("target_fps")
     @property
-    def anim_samples(self) -> int:
-        return self.get("anim_samples")
-
+    def anim_samples(self) -> int:      return self.get("anim_samples")
     @property
-    def static_samples(self) -> int:
-        return self.get("static_samples")
-
+    def static_samples(self) -> int:    return self.get("static_samples")
     @property
-    def replot_delay_ms(self) -> int:
-        return self.get("replot_delay_ms")
-
+    def replot_delay_ms(self) -> int:   return self.get("replot_delay_ms")
     @property
-    def theme(self) -> str:
-        return self.get("theme")
-
+    def theme(self) -> str:             return self.get("theme")
     @property
-    def show_fps(self) -> bool:
-        return self.get("show_fps")
-
+    def show_fps(self) -> bool:         return self.get("show_fps")
     @property
-    def antialiasing(self) -> bool:
-        return self.get("antialiasing")
-
+    def antialiasing(self) -> bool:     return self.get("antialiasing")
     @property
-    def line_aa(self) -> bool:
-        return self.get("line_aa")
-
+    def line_aa(self) -> bool:          return self.get("line_aa")
     @property
-    def panel_width(self) -> int:
-        return self.get("panel_width")
-
+    def panel_width(self) -> int:       return self.get("panel_width")
     @property
-    def use_numpy(self) -> bool:
-        return self.get("use_numpy")
-
+    def use_numpy(self) -> bool:        return self.get("use_numpy")
     @property
-    def script_editor(self) -> str:
-        return self.get("script_editor")
-
+    def script_editor(self) -> str:     return self.get("script_editor")
     @property
-    def anim_interval_ms(self) -> int:
-        return max(8, 1000 // self.target_fps)
+    def script_timeout_s(self) -> int:  return int(self.get("script_timeout_s"))
+    @property
+    def anim_interval_ms(self) -> int:  return max(8, 1000 // self.target_fps)

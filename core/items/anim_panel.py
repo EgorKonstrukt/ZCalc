@@ -34,18 +34,15 @@ class AnimPanel(QGroupBox):
         row1 = QHBoxLayout()
         self._play_btn = QPushButton("Play")
         self._play_btn.setCheckable(True)
-        self._play_btn.setFixedWidth(52)
         self._play_btn.toggled.connect(self._on_play_toggled)
 
         self._t_label = QLabel("t = 0.000")
-        self._t_label.setFixedWidth(80)
 
         speed_lbl = QLabel("Speed:")
         self._speed_combo = QComboBox()
         for s in _SPEEDS:
             self._speed_combo.addItem(f"x{s}")
         self._speed_combo.setCurrentIndex(_SPEEDS.index(_DEFAULT_SPEED))
-        self._speed_combo.setFixedWidth(60)
         self._speed_combo.currentIndexChanged.connect(self._on_speed_change)
 
         reset_btn = QPushButton("Reset")

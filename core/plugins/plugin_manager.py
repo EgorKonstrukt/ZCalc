@@ -2,13 +2,12 @@ from __future__ import annotations
 
 import json
 import logging
-import os
 from pathlib import Path
 from typing import Dict, List, Optional
 
-from core.plugin_base import AnyPlugin, PanelPlugin, SidebarPlugin, MenuPlugin
-from core.plugin_loader import PluginLoader, PluginRecord
-from core.app_context import AppContext
+from core.plugins.plugin_base import AnyPlugin, PanelPlugin, SidebarPlugin, MenuPlugin
+from core.plugins.plugin_loader import PluginLoader, PluginRecord
+from core.plugins.app_context import AppContext
 
 log = logging.getLogger(__name__)
 
@@ -16,14 +15,6 @@ _STATE_FILE = "plugin_state.json"
 
 
 class PluginManager:
-    """
-    Owns the plugin lifecycle: discovery, enable/disable, serialisation.
-
-    The manager is created by MainWindow, which passes its AppContext.
-    Plugins are loaded from <app_dir>/plugins/ and their enabled/disabled
-    state is persisted to plugin_state.json next to the executable.
-    """
-
     def __init__(self, plugins_dir: str | Path, state_dir: str | Path) -> None:
         self._loader = PluginLoader(plugins_dir)
         self._state_path = Path(state_dir) / _STATE_FILE
@@ -33,11 +24,6 @@ class PluginManager:
         self._saved_enabled: Dict[str, bool] = {}
 
     def initialise(self, context: AppContext) -> None:
-        """
-        Discover all plugins and restore their enabled state.
-
-        Must be called once after AppContext is fully constructed.
-        """
         self._context = context
         self._load_saved_state()
         discovered = self._loader.discover()
@@ -49,8 +35,17 @@ class PluginManager:
                 if rec and rec.enabled:
                     self._integrate(rec)
 
+    def shutdown(self, context: AppContext) -> None:
+        for pid in list(self._loader.records.keys()):
+            rec = self._loader.get(pid)
+            if rec and rec.enabled:
+                try:
+                    rec.plugin.on_unload(context)
+                    rec.enabled = False
+                except Exception as exc:
+                    log.warning("on_unload failed for %s: %s", pid, exc)
+
     def enable_plugin(self, plugin_id: str) -> bool:
-        """Enable a loaded plugin and integrate it into the UI."""
         ok = self._loader.enable(plugin_id, self._context)
         if ok:
             rec = self._loader.get(plugin_id)
@@ -60,13 +55,11 @@ class PluginManager:
         return ok
 
     def disable_plugin(self, plugin_id: str) -> bool:
-        """Disable a plugin and save the new state."""
         ok = self._loader.disable(plugin_id, self._context)
         self._persist_state()
         return ok
 
     def records(self) -> List[PluginRecord]:
-        """Return all discovered plugin records."""
         return list(self._loader.records.values())
 
     def panel_plugins(self) -> List[PanelPlugin]:

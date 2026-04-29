@@ -13,7 +13,7 @@ X_MIN   = -pi
 X_MAX   =  pi
 N_PTS   = 600
 MAX_N   = 40
-FPS     = 20
+FPS     = 60
 
 api.add_param("terms", lo=1.0, hi=float(MAX_N), val=5.0)
 

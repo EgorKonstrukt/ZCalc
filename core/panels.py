@@ -4,37 +4,236 @@ import math
 from typing import Dict, List, Optional
 
 from PyQt5.QtCore import Qt, QTimer, pyqtSignal, QObject, QEvent, QMimeData, QPoint
-from PyQt5.QtGui import QDrag, QPixmap
+from PyQt5.QtGui import QDrag, QFont
 from PyQt5.QtWidgets import (
     QCheckBox, QDoubleSpinBox, QFrame, QGroupBox, QHBoxLayout,
     QLabel, QScrollArea, QSpinBox, QVBoxLayout, QWidget,
-    QPushButton, QComboBox, QMenu, QToolButton, QSizePolicy,
+    QPushButton, QComboBox, QSizePolicy,
 )
 from pyqt5_chart_widget import ChartWidget
 
 from constants import (
     COLORS, PRESETS,
     DEFAULT_XMIN, DEFAULT_XMAX, DEFAULT_YMIN, DEFAULT_YMAX,
-    DEFAULT_TMIN, DEFAULT_TMAX, DEFAULT_SAMPLES,
+    DEFAULT_TMIN, DEFAULT_TMAX, DEFAULT_SAMPLES, DEFAULT_MAXPTS, DEFAULT_MINPTS,
 )
-from function_row import FunctionRow, _normalize_mode
-from param_slider import ParamSliderWidget
+from core.items.function_row import (
+    FunctionRow, _normalize_mode,
+    make_function_row, function_row_from_state,
+)
+from core.items.param_slider import ParamSliderWidget
 from history import History, AddFunctionCmd, RemoveFunctionCmd, AddParamCmd, RemoveParamCmd
-from expr_item import ExprItem
+from core.items.expr_item import ExprItem
 from config import Config
 
-_TOOLBAR_BTN_STYLE = (
-    "QPushButton{background:#f5f5f5;border:1px solid #ddd;border-radius:4px;"
-    "font-size:12px;padding:3px 8px;}"
-    "QPushButton:hover{background:#e8e8e8;}"
-    "QPushButton:pressed{background:#d0d0d0;}"
-)
-_ADD_BTN_STYLE = (
-    "QToolButton{background:#3498db;color:white;border:none;border-radius:4px;"
-    "font-size:13px;padding:3px 10px;font-weight:bold;}"
-    "QToolButton:hover{background:#2980b9;}"
-    "QToolButton::menu-indicator{image:none;}"
-)
+
+_TYPE_ENTRIES = [
+    {
+        "mode":     "y=f(x)",
+        "short":    "f(x)",
+        "title":    "Cartesian",
+        "detail":   "y = f(x)",
+        "bg":       "#dbeafe",
+        "fg":       "#1d4ed8",
+        "border":   "#93c5fd",
+        "hover_bg": "#bfdbfe",
+    },
+    {
+        "mode":     "r=f(t)",
+        "short":    "r(θ)",
+        "title":    "Polar",
+        "detail":   "r = f(θ)",
+        "bg":       "#fce7f3",
+        "fg":       "#be185d",
+        "border":   "#f9a8d4",
+        "hover_bg": "#fbcfe8",
+    },
+    {
+        "mode":     "param",
+        "short":    "(x,y)",
+        "title":    "Parametric",
+        "detail":   "(x(t), y(t))",
+        "bg":       "#dcfce7",
+        "fg":       "#15803d",
+        "border":   "#86efac",
+        "hover_bg": "#bbf7d0",
+    },
+]
+
+
+class _TypePickerPopup(QFrame):
+    """Floating panel for selecting the curve type when adding a new expression."""
+
+    picked = pyqtSignal(str)
+
+    def __init__(self, parent: QWidget = None) -> None:
+        super().__init__(parent, Qt.Popup | Qt.FramelessWindowHint)
+        self.setObjectName("typePicker")
+        self.setAttribute(Qt.WA_StyledBackground, True)
+        self.setStyleSheet(
+            "#typePicker{"
+            "background:#ffffff;"
+            "border:1px solid #d1d5db;"
+            "border-radius:8px;"
+            "}"
+        )
+        lay = QVBoxLayout(self)
+        lay.setContentsMargins(8, 8, 8, 8)
+        lay.setSpacing(4)
+
+        hdr = QLabel("Add expression")
+        hdr.setStyleSheet("font-size:16px;font-weight:bold;color:#6b7280;")
+        lay.addWidget(hdr)
+
+        for t in _TYPE_ENTRIES:
+            lay.addWidget(self._make_btn(t))
+
+    def _make_btn(self, t: dict) -> QPushButton:
+        btn = QPushButton()
+        btn.setCursor(Qt.PointingHandCursor)
+        btn.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        btn.setFixedHeight(40)
+        btn.setStyleSheet(
+            f"QPushButton{{"
+            f"text-align:left;"
+            f"padding:0 10px;"
+            f"background:{t['bg']};"
+            f"border:1px solid {t['border']};"
+            f"border-radius:5px;"
+            f"color:{t['fg']};"
+            f"font-size:11px;"
+            f"font-weight:bold;"
+            f"}}"
+            f"QPushButton:hover{{background:{t['hover_bg']};}}"
+        )
+
+        overlay = QWidget(btn)
+        overlay.setAttribute(Qt.WA_TransparentForMouseEvents)
+        ol = QHBoxLayout(overlay)
+        ol.setContentsMargins(0, 0, 0, 0)
+        ol.setSpacing(8)
+
+        badge = QLabel(t["short"])
+        badge.setFixedWidth(36)
+        badge.setAlignment(Qt.AlignCenter)
+        badge.setStyleSheet(
+            f"background:{t['fg']};"
+            f"color:#ffffff;"
+            f"border-radius:3px;"
+            f"font-size:14px;"
+            f"font-weight:bold;"
+            f"padding:1px 2px;"
+        )
+        ol.addWidget(badge)
+
+        title_lbl = QLabel(t["title"])
+        title_lbl.setStyleSheet(
+            f"color:{t['fg']};font-size:12px;font-weight:bold;"
+        )
+        ol.addWidget(title_lbl)
+
+        detail_lbl = QLabel(t["detail"])
+        detail_lbl.setStyleSheet("color:#6b7280;font-size:10px;")
+        ol.addWidget(detail_lbl)
+        ol.addStretch()
+
+        btn.resizeEvent = lambda _e, w=overlay: w.setGeometry(btn.rect())
+
+        mode = t["mode"]
+        btn.clicked.connect(lambda _=False, m=mode: self._emit(m))
+        return btn
+
+    def _emit(self, mode: str) -> None:
+        self.picked.emit(mode)
+        self.close()
+
+    def show_below(self, widget: QWidget) -> None:
+        """Position and show the popup immediately below widget."""
+        pos = widget.mapToGlobal(QPoint(0, widget.height() + 2))
+        self.move(pos)
+        self.adjustSize()
+        self.show()
+        self.raise_()
+
+
+class _AddButton(QWidget):
+    """
+    The main '+Add' button.
+
+    Clicking opens _TypePickerPopup; the type_selected signal carries the
+    chosen mode string and any registered plugin entries.
+    """
+
+    type_selected   = pyqtSignal(str)
+    plugin_selected = pyqtSignal(object)
+
+    def __init__(self, parent: QWidget = None) -> None:
+        super().__init__(parent)
+        self._plugin_entries: list = []
+        lay = QHBoxLayout(self)
+        lay.setContentsMargins(0, 0, 0, 0)
+        lay.setSpacing(0)
+
+        self._btn = QPushButton("+ Add")
+        self._btn.setCursor(Qt.PointingHandCursor)
+        self._btn.setFixedHeight(30)
+        self._btn.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        self._btn.setStyleSheet(
+            "QPushButton{"
+            "background:#3498db;"
+            "color:white;"
+            "border-radius:4px;"
+            "font-size:13px;"
+            "padding:3px 10px;"
+            "font-weight:bold;"
+            "border:none;"
+            "}"
+            "QPushButton:hover{background:#2980b9;}"
+            "QPushButton:pressed{background:#2471a3;}"
+        )
+        self._btn.clicked.connect(self._show_picker)
+        lay.addWidget(self._btn)
+
+        self._popup: _TypePickerPopup | None = None
+
+    def add_plugin_entry(self, label: str, plugin) -> None:
+        """Register a plugin item type to appear below curve types in the popup."""
+        self._plugin_entries.append((label, plugin))
+
+    def _show_picker(self) -> None:
+        if self._popup is not None:
+            self._popup.close()
+            self._popup = None
+
+        popup = _TypePickerPopup(self)
+        popup.picked.connect(self.type_selected.emit)
+
+        if self._plugin_entries:
+            from PyQt5.QtWidgets import QFrame as _QF
+            sep = _QF()
+            sep.setFrameShape(_QF.HLine)
+            sep.setStyleSheet("color:#e5e7eb;")
+            popup.layout().addWidget(sep)
+            for label, plugin in self._plugin_entries:
+                btn = QPushButton(label)
+                btn.setCursor(Qt.PointingHandCursor)
+                btn.setFixedHeight(32)
+                btn.setStyleSheet(
+                    "QPushButton{"
+                    "text-align:left;padding:0 10px;"
+                    "background:#f9fafb;border:1px solid #e5e7eb;"
+                    "border-radius:5px;color:#374151;font-size:11px;"
+                    "}"
+                    "QPushButton:hover{background:#f3f4f6;}"
+                )
+                p = plugin
+                btn.clicked.connect(
+                    lambda _=False, pl=p: (popup.close(), self.plugin_selected.emit(pl))
+                )
+                popup.layout().addWidget(btn)
+
+        popup.show_below(self._btn)
+        self._popup = popup
 
 
 class DragFilter(QObject):
@@ -51,11 +250,11 @@ class DragFilter(QObject):
         elif e.type() == QEvent.MouseMove and self.start_pos:
             if (e.pos() - self.start_pos).manhattanLength() > 5:
                 drag = QDrag(self.container)
+                from PyQt5.QtCore import QMimeData
                 mime = QMimeData()
                 mime.setText(f"drag_item_{id(obj)}")
                 drag.setMimeData(mime)
-                px = obj.grab()
-                drag.setPixmap(px)
+                drag.setPixmap(obj.grab())
                 drag.setHotSpot(e.pos())
                 obj.hide()
                 drag.exec_(Qt.MoveAction)
@@ -70,7 +269,7 @@ class DragFilter(QObject):
 class ReorderContainer(QWidget):
     """Container that accepts drops for reordering and nesting items hierarchically."""
 
-    def __init__(self, panel: FunctionPanel, parent: Optional[QWidget] = None) -> None:
+    def __init__(self, panel: "FunctionPanel", parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
         self.panel = panel
         self.setAcceptDrops(True)
@@ -170,8 +369,10 @@ class DerivativePanel(QGroupBox):
 
     def to_state(self) -> dict:
         return {
-            "d1": self.show_d1(), "d2": self.show_d2(),
-            "ig": self.show_ig(), "src": self._src.currentText(),
+            "d1": self.show_d1(),
+            "d2": self.show_d2(),
+            "ig": self.show_ig(),
+            "src": self._src.currentText(),
         }
 
     def apply_state(self, state: dict) -> None:
@@ -183,16 +384,16 @@ class DerivativePanel(QGroupBox):
 class GraphSettings(QGroupBox):
     """Spinbox controls for x/y/t range, sample count, and infinite mode."""
 
-    changed = pyqtSignal()
+    changed          = pyqtSignal()
     infinite_changed = pyqtSignal(bool)
 
     def __init__(self, parent=None):
         super().__init__("View", parent)
         from PyQt5.QtWidgets import QGridLayout
         lay = QGridLayout(self)
-        lay.setSpacing(3)
+        lay.setSpacing(1)
 
-        def mk(lo, hi, val, dec=1, w=68):
+        def mk(lo, hi, val, dec=1, w=100):
             s = QDoubleSpinBox()
             s.setRange(lo, hi)
             s.setValue(val)
@@ -202,62 +403,42 @@ class GraphSettings(QGroupBox):
             s.valueChanged.connect(self.changed.emit)
             return s
 
-        self._xmin = mk(-1e6, 0, DEFAULT_XMIN)
-        self._xmax = mk(0, 1e6, DEFAULT_XMAX)
-        self._ymin = mk(-1e6, 0, DEFAULT_YMIN)
-        self._ymax = mk(0, 1e6, DEFAULT_YMAX)
-        self._tmin = mk(-1e3, 0, DEFAULT_TMIN, dec=3)
-        self._tmax = mk(0, 1e3, DEFAULT_TMAX, dec=3)
+        self._xmin = mk(-1e6, 0,    DEFAULT_XMIN)
+        self._xmax = mk(0,    1e6,  DEFAULT_XMAX)
+        self._ymin = mk(-1e6, 0,    DEFAULT_YMIN)
+        self._ymax = mk(0,    1e6,  DEFAULT_YMAX)
+        self._tmin = mk(-1e3, 0,    DEFAULT_TMIN, dec=3)
+        self._tmax = mk(0,    1e3,  DEFAULT_TMAX, dec=3)
+
         self._samp = QSpinBox()
-        self._samp.setRange(100, 8000)
+        self._samp.setRange(DEFAULT_MINPTS, DEFAULT_MAXPTS)
         self._samp.setValue(DEFAULT_SAMPLES)
         self._samp.setFixedWidth(68)
         self._samp.valueChanged.connect(self.changed.emit)
+
         self._infinite = QCheckBox("Infinite graph")
         self._infinite.setChecked(True)
         self._infinite.toggled.connect(self.changed.emit)
         self._infinite.toggled.connect(self.infinite_changed.emit)
 
-        lbl = lambda t: QLabel(f"<small>{t}</small>")
-        lay.addWidget(lbl("x:"), 0, 0);
-        lay.addWidget(self._xmin, 0, 1)
-        lay.addWidget(lbl("to"), 0, 2);
-        lay.addWidget(self._xmax, 0, 3)
-        lay.addWidget(lbl("y:"), 1, 0);
-        lay.addWidget(self._ymin, 1, 1)
-        lay.addWidget(lbl("to"), 1, 2);
-        lay.addWidget(self._ymax, 1, 3)
-        lay.addWidget(lbl("t:"), 2, 0);
-        lay.addWidget(self._tmin, 2, 1)
-        lay.addWidget(lbl("to"), 2, 2);
-        lay.addWidget(self._tmax, 2, 3)
-        lay.addWidget(lbl("pts:"), 3, 0);
-        lay.addWidget(self._samp, 3, 1)
+        lbl = lambda t: QLabel(f"{t}")
+        lay.addWidget(lbl("x:"),  0, 0);  lay.addWidget(self._xmin, 0, 1)
+        lay.addWidget(lbl("to"),  0, 2);  lay.addWidget(self._xmax, 0, 3)
+        lay.addWidget(lbl("y:"),  1, 0);  lay.addWidget(self._ymin, 1, 1)
+        lay.addWidget(lbl("to"),  1, 2);  lay.addWidget(self._ymax, 1, 3)
+        lay.addWidget(lbl("t:"),  2, 0);  lay.addWidget(self._tmin, 2, 1)
+        lay.addWidget(lbl("to"),  2, 2);  lay.addWidget(self._tmax, 2, 3)
+        lay.addWidget(lbl("pts:"),3, 0);  lay.addWidget(self._samp, 3, 1)
         lay.addWidget(self._infinite, 3, 2, 1, 2)
 
-    def xmin(self) -> float:
-        return self._xmin.value()
-
-    def xmax(self) -> float:
-        return self._xmax.value()
-
-    def ymin(self) -> float:
-        return self._ymin.value()
-
-    def ymax(self) -> float:
-        return self._ymax.value()
-
-    def tmin(self) -> float:
-        return self._tmin.value()
-
-    def tmax(self) -> float:
-        return self._tmax.value()
-
-    def samples(self) -> int:
-        return self._samp.value()
-
-    def infinite(self) -> bool:
-        return self._infinite.isChecked()
+    def xmin(self) -> float:    return self._xmin.value()
+    def xmax(self) -> float:    return self._xmax.value()
+    def ymin(self) -> float:    return self._ymin.value()
+    def ymax(self) -> float:    return self._ymax.value()
+    def tmin(self) -> float:    return self._tmin.value()
+    def tmax(self) -> float:    return self._tmax.value()
+    def samples(self) -> int:   return self._samp.value()
+    def infinite(self) -> bool: return self._infinite.isChecked()
 
     def to_state(self) -> dict:
         return {k: getattr(self, k)() for k in
@@ -283,25 +464,29 @@ class FunctionPanel(QWidget):
     derivative overlays, graph view settings, and plugin-contributed items.
     """
 
-    update_requested = pyqtSignal()
+    update_requested      = pyqtSignal()
     anim_update_requested = pyqtSignal()
 
-    def __init__(self, chart: Optional[ChartWidget], history: History,
-                 parent=None) -> None:
+    def __init__(
+        self,
+        chart: Optional[ChartWidget],
+        history: History,
+        parent=None,
+    ) -> None:
         super().__init__(parent)
-        self._chart = chart
-        self._history = history
-        self._cfg = Config()
-        self.func_rows: List[FunctionRow] = []
-        self._params: Dict[str, float] = {}
-        self._param_widgets: Dict[str, ParamSliderWidget] = {}
-        self._deriv_lines: Dict[str, object] = {}
-        self._items: List[ExprItem] = []
-        self._plotter = None
-        self._plugin_item_types: List[tuple] = []
-        self._context = None
-        self._drag_filter = DragFilter(self)
-        self._anim_timer = QTimer(self)
+        self._chart              = chart
+        self._history            = history
+        self._cfg                = Config()
+        self.func_rows:          List[FunctionRow]            = []
+        self._params:            Dict[str, float]             = {}
+        self._param_widgets:     Dict[str, ParamSliderWidget] = {}
+        self._deriv_lines:       Dict[str, object]            = {}
+        self._items:             List[ExprItem]               = []
+        self._plotter            = None
+        self._plugin_item_types: List[tuple]                  = []
+        self._context            = None
+        self._drag_filter        = DragFilter(self)
+        self._anim_timer         = QTimer(self)
         self._anim_timer.setInterval(self._cfg.anim_interval_ms)
         self._anim_timer.timeout.connect(self.anim_update_requested.emit)
         self._build_ui()
@@ -311,9 +496,9 @@ class FunctionPanel(QWidget):
         self._context = context
 
     def register_plugin_item_type(self, label: str, plugin) -> None:
-        """Register a PanelPlugin so its item type appears in the drop-down menu."""
+        """Register a PanelPlugin so its item type appears in the +Add popup."""
         self._plugin_item_types.append((label, plugin))
-        self._rebuild_add_menu()
+        self._add_btn.add_plugin_entry(label, plugin)
 
     def set_plotter(self, plotter) -> None:
         self._plotter = plotter
@@ -325,28 +510,21 @@ class FunctionPanel(QWidget):
             self._anim_timer.start()
 
     def _build_ui(self) -> None:
-        self.setStyleSheet("FunctionPanel{background:#ffffff;}")
         lay = QVBoxLayout(self)
         lay.setContentsMargins(0, 0, 0, 0)
         lay.setSpacing(0)
 
         toolbar = QWidget()
         toolbar.setFixedHeight(40)
-        toolbar.setStyleSheet("background:#f8f8f8;border-bottom:1px solid #ddd;")
         tl = QHBoxLayout(toolbar)
         tl.setContentsMargins(6, 4, 6, 4)
         tl.setSpacing(4)
 
-        self._add_btn = QToolButton()
-        self._add_btn.setText("+ Add")
-        self._add_btn.setStyleSheet(_ADD_BTN_STYLE)
-        self._add_btn.setPopupMode(QToolButton.InstantPopup)
-        self._add_menu = QMenu(self._add_btn)
-        self._add_btn.setMenu(self._add_menu)
-        self._rebuild_add_menu()
+        self._add_btn = _AddButton(self)
+        self._add_btn.type_selected.connect(self._on_add_typed)
+        self._add_btn.plugin_selected.connect(self._add_plugin_item)
 
         btn_param = QPushButton("+ param")
-        btn_param.setStyleSheet(_TOOLBAR_BTN_STYLE)
         btn_param.clicked.connect(self._prompt_add_param)
 
         self._preset_combo = QComboBox()
@@ -365,9 +543,7 @@ class FunctionPanel(QWidget):
         self._scroll = QScrollArea()
         self._scroll.setWidgetResizable(True)
         self._scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
-        self._scroll.setStyleSheet("QScrollArea{border:none;background:white;}")
         self._container = ReorderContainer(self)
-        self._container.setStyleSheet("background:white;")
         self._vlay = QVBoxLayout(self._container)
         self._vlay.setContentsMargins(0, 0, 0, 0)
         self._vlay.setSpacing(0)
@@ -376,7 +552,6 @@ class FunctionPanel(QWidget):
         lay.addWidget(self._scroll, 1)
 
         bottom = QWidget()
-        bottom.setStyleSheet("background:#f8f8f8;border-top:1px solid #ddd;")
         bl = QVBoxLayout(bottom)
         bl.setContentsMargins(4, 4, 4, 4)
         bl.setSpacing(4)
@@ -388,23 +563,16 @@ class FunctionPanel(QWidget):
         bl.addWidget(self.settings)
         lay.addWidget(bottom)
 
-    def _rebuild_add_menu(self) -> None:
-        self._add_menu.clear()
-        fn_act = self._add_menu.addAction("Function f(x)")
-        fn_act.triggered.connect(self._add_default_function)
-        if self._plugin_item_types:
-            self._add_menu.addSeparator()
-        for label, plugin in self._plugin_item_types:
-            act = self._add_menu.addAction(label)
-            act.triggered.connect(
-                lambda checked=False, p=plugin: self._add_plugin_item(p)
-            )
-
-    def _add_default_function(self) -> None:
+    def _on_add_typed(self, mode: str) -> None:
+        """Slot for _AddButton.type_selected — adds a blank typed function row."""
         state = {
-            "expr": "", "mode": "y=f(x)",
-            "color": COLORS[len(self.func_rows) % len(COLORS)],
-            "width": 2, "enabled": True, "expr2": "", "type": "function",
+            "expr":    "",
+            "mode":    _normalize_mode(mode),
+            "color":   COLORS[len(self.func_rows) % len(COLORS)],
+            "width":   2,
+            "enabled": True,
+            "expr2":   "",
+            "type":    "function",
         }
         self._history.push(AddFunctionCmd(self, state))
 
@@ -438,14 +606,19 @@ class FunctionPanel(QWidget):
             return
         self._history.push(AddParamCmd(self, candidates[0]))
 
-    def add_param(self, name: str, record: bool = True, state: dict = None) -> Optional[QWidget]:
+    def add_param(
+        self,
+        name: str,
+        record: bool = True,
+        state: dict = None,
+    ) -> Optional[QWidget]:
         if name in self._params:
             return self._param_widgets.get(name)
         self._params[name] = state["val"] if state else 1.0
         w = ParamSliderWidget(
             name,
-            lo=state["lo"] if state else -5.0,
-            hi=state["hi"] if state else 5.0,
+            lo=state["lo"]  if state else -5.0,
+            hi=state["hi"]  if state else  5.0,
             val=self._params[name],
         )
         if state:
@@ -453,8 +626,11 @@ class FunctionPanel(QWidget):
         w.param_changed.connect(self._on_param_changed)
         w.name_changed.connect(self._on_param_renamed)
         w.removed.connect(lambda item: self._history.push(
-            RemoveParamCmd(self, item.name,
-                           self._param_widgets[item.name].to_state())))
+            RemoveParamCmd(
+                self, item.name,
+                self._param_widgets[item.name].to_state(),
+            )
+        ))
         self._param_widgets[name] = w
         self._items.append(w)
         self._vlay.insertWidget(self._vlay.count() - 1, w)
@@ -477,8 +653,11 @@ class FunctionPanel(QWidget):
         self._param_widgets[new_name] = w
         w.removed.disconnect()
         w.removed.connect(lambda item: self._history.push(
-            RemoveParamCmd(self, item.name,
-                           self._param_widgets[item.name].to_state())))
+            RemoveParamCmd(
+                self, item.name,
+                self._param_widgets[item.name].to_state(),
+            )
+        ))
         self.update_requested.emit()
 
     def remove_param(self, name: str, record: bool = True) -> None:
@@ -505,8 +684,9 @@ class FunctionPanel(QWidget):
             self.update_requested.emit()
 
     def add_function_from_state(self, state: dict) -> FunctionRow:
+        """Create a typed FunctionRow from state and register it in the panel."""
         idx = len(self.func_rows)
-        row = FunctionRow(idx, self)
+        row = function_row_from_state(state, idx=idx, parent=self)
         row.changed.connect(self.update_requested.emit)
         row.removed.connect(lambda r: self._history.push(RemoveFunctionCmd(self, r)))
         self.func_rows.append(row)
@@ -520,7 +700,6 @@ class FunctionPanel(QWidget):
                 width=state.get("width", 2),
             )
             row.chart_line = line
-        row.apply_state(state)
         self._sync_deriv_sources()
         self.update_requested.emit()
         return row
@@ -560,9 +739,13 @@ class FunctionPanel(QWidget):
             expr, mode, expr2 = PRESETS[name]
             norm_mode = _normalize_mode(mode or "y=f(x)")
             state = {
-                "expr": expr, "mode": norm_mode, "expr2": expr2 or "",
-                "color": COLORS[len(self.func_rows) % len(COLORS)],
-                "width": 2, "enabled": True, "type": "function",
+                "expr":    expr,
+                "mode":    norm_mode,
+                "expr2":   expr2 or "",
+                "color":   COLORS[len(self.func_rows) % len(COLORS)],
+                "width":   2,
+                "enabled": True,
+                "type":    "function",
             }
             self._history.push(AddFunctionCmd(self, state))
         self._preset_combo.blockSignals(True)
@@ -575,10 +758,7 @@ class FunctionPanel(QWidget):
             self.remove_function(row, record=False)
         for name in list(self._param_widgets.keys()):
             self.remove_param(name, record=False)
-        plugin_items = [
-            w for w in self._items
-            if w.property("_plugin_id") is not None
-        ]
+        plugin_items = [w for w in self._items if w.property("_plugin_id") is not None]
         for w in plugin_items:
             self._items.remove(w)
             if w.parentWidget() and w.parentWidget().layout():
@@ -619,9 +799,9 @@ class FunctionPanel(QWidget):
             return res
 
         return {
-            "items": serialize_layout(self._vlay),
+            "items":    serialize_layout(self._vlay),
             "settings": self.settings.to_state(),
-            "derivs": self.deriv_panel.to_state(),
+            "derivs":   self.deriv_panel.to_state(),
         }
 
     def apply_state(self, state: dict) -> None:
@@ -635,7 +815,10 @@ class FunctionPanel(QWidget):
                 self.add_function_from_state(fs)
             for pit in state.get("plugin_items", []):
                 pid = pit.get("plugin_id")
-                plugin = next((p for l, p in self._plugin_item_types if p.meta.id == pid), None)
+                plugin = next(
+                    (p for _l, p in self._plugin_item_types if p.meta.id == pid),
+                    None,
+                )
                 if plugin:
                     w = self._add_plugin_item(plugin)
                     if w and hasattr(w, "apply_state"):
@@ -656,7 +839,10 @@ class FunctionPanel(QWidget):
                 w = self.add_param(item["name"], record=False, state=item)
             elif t == "plugin_item":
                 pid = item.get("plugin_id")
-                plugin = next((p for l, p in self._plugin_item_types if p.meta.id == pid), None)
+                plugin = next(
+                    (p for _l, p in self._plugin_item_types if p.meta.id == pid),
+                    None,
+                )
                 if plugin:
                     w = self._add_plugin_item(plugin)
                     if w and hasattr(w, "apply_state"):

@@ -59,8 +59,10 @@ _PROF_UPDATE_MS    = 500
 class ScriptRow(QFrame):
     """
     Panel item widget for one Python script file.
+
     Serialises as type='plugin_item' so FunctionPanel._restore_items
     can reconstruct it from a .zcalc session.
+    Supports drag-and-drop reordering and nesting inside Folder items.
     """
     changed = pyqtSignal()
     removed = pyqtSignal(object)
@@ -97,42 +99,54 @@ class ScriptRow(QFrame):
         outer = QVBoxLayout(self)
         outer.setContentsMargins(0, 0, 0, 0)
         outer.setSpacing(0)
+
         top = QWidget()
         top.setStyleSheet("background:transparent;")
         header = QHBoxLayout(top)
         header.setContentsMargins(6, 3, 4, 3)
         header.setSpacing(4)
-        icon = QLabel(">>")
+
+        icon = QLabel("◈")
         icon.setStyleSheet("QLabel{color:#27ae60;font-size:13px;font-weight:bold;}")
-        icon.setFixedWidth(20)
+        icon.setFixedWidth(16)
+
         self._name_lbl = QLabel(self._display_name())
-        self._name_lbl.setStyleSheet("QLabel{font-size:11px;font-weight:bold;color:#1a5c1a;}")
+        self._name_lbl.setStyleSheet(
+            "QLabel{font-size:11px;font-weight:bold;color:#1a5c1a;}"
+        )
         self._name_lbl.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+
         self._status_lbl = QLabel("idle")
         self._status_lbl.setStyleSheet(_ST_IDLE)
         self._status_lbl.setFixedWidth(150)
         self._status_lbl.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
+
         self._run_btn  = self._mk_btn("Run",  _BTN_RUN,  self._on_run)
         self._stop_btn = self._mk_btn("Stop", _BTN_STOP, self._on_stop)
         self._stop_btn.setEnabled(False)
         self._edit_btn = self._mk_btn("Edit", _BTN_EDIT, self._on_edit)
         self._load_btn = self._mk_btn("Load", _BTN_LOAD, self._on_load)
-        rm_btn = QPushButton("X")
+
+        rm_btn = QPushButton("✕")
         rm_btn.setStyleSheet(_BTN_RM)
         rm_btn.setFixedSize(20, 20)
         rm_btn.setToolTip("Remove script")
         rm_btn.clicked.connect(lambda: self.removed.emit(self))
+
         for w in (icon, self._name_lbl, self._status_lbl,
                   self._run_btn, self._stop_btn,
                   self._edit_btn, self._load_btn, rm_btn):
             header.addWidget(w)
+
         outer.addWidget(top)
+
         self._path_lbl = QLabel("No file loaded")
         self._path_lbl.setStyleSheet(
             "QLabel{font-size:9px;color:#aaa;padding:0 6px 2px 28px;}"
         )
         self._path_lbl.setWordWrap(True)
         outer.addWidget(self._path_lbl)
+
         self._prof_lbl = QLabel("")
         self._prof_lbl.setStyleSheet(_PROF_STYLE)
         self._prof_lbl.setVisible(False)
@@ -157,7 +171,7 @@ class ScriptRow(QFrame):
 
     def _auto_reload(self):
         if self._running and self._script_path and os.path.isfile(self._script_path):
-            self._log_info("File changed - reloading script")
+            self._log_info("File changed — reloading script")
             self._on_stop()
             self._on_run()
 
@@ -171,26 +185,36 @@ class ScriptRow(QFrame):
             self._set_status(f"Read error: {exc}", error=True)
             self._log_error(f"Cannot read file: {exc}")
             return
+
         if self._api:
             self._api.cleanup()
+
         self._api = ScriptAPI(self._ctx, self)
+
         timeout = DEFAULT_TIMEOUT_S
         try:
             from config import Config
             timeout = float(Config().get("script_timeout_s") or DEFAULT_TIMEOUT_S)
         except Exception:
             pass
+
         self._profiler.start()
+        self._set_status("starting…", running=True)
+
         stdout_real = sys.stdout
         stderr_real = sys.stderr
+
         if self._console:
             from .script_console import ConsoleStream
             sys.stdout = ConsoleStream(self._console, self._script_name(), is_err=False)
             sys.stderr = ConsoleStream(self._console, self._script_name(), is_err=True)
+
         ns = build_namespace(self._api)
         ok, err = run_script(code, ns, timeout_s=timeout)
+
         sys.stdout = stdout_real
         sys.stderr = stderr_real
+
         if ok:
             self._running = True
             self._run_btn.setEnabled(False)
@@ -200,9 +224,6 @@ class ScriptRow(QFrame):
             self._prof_timer.start()
             self._log_info(f"Script started (timeout={timeout:.0f}s)")
         else:
-            if self._api:
-                self._api.cleanup()
-                self._api = None
             self._profiler.stop()
             lines = err.strip().splitlines()
             short = lines[-1] if lines else "Error"
@@ -211,6 +232,7 @@ class ScriptRow(QFrame):
             self._ctx.show_status(f"Script error: {short}", 6000)
             self._prof_lbl.setVisible(True)
             self._update_prof_label()
+
         self.changed.emit()
 
     def _on_stop(self):
@@ -231,10 +253,10 @@ class ScriptRow(QFrame):
     def _update_prof_label(self):
         s = self._profiler.summary()
         parts = [
-            f"wall {s['wall_s']:.1f}s",
+            f"⏱ {s['wall_s']:.1f}s",
             f"CPU {s['cpu_s']*1000:.0f}ms",
             f"RAM {s['mem_mb']:.1f}MB",
-            f"D{s['mem_delta_mb']:+.1f}MB",
+            f"Δ{s['mem_delta_mb']:+.1f}MB",
         ]
         if _PSUTIL and self._running:
             parts.append(f"CPU% {s['cpu_pct']:.0f}%")
@@ -271,7 +293,7 @@ class ScriptRow(QFrame):
             p = d / f"new_script_{n}.py"
             n += 1
         p.write_text(
-            '"""\nZCalc Script - use `api` to interact with the application.\n"""\n\n',
+            '"""\nZCalc Script — use `api` to interact with the application.\n"""\n\n',
             encoding="utf-8",
         )
         self._set_path(str(p))
