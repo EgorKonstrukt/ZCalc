@@ -11,8 +11,13 @@ from pyqt5_chart_widget import ChartWidget, _FunctionItem
 from math_engine import (
     linspace, sample_y, sample_polar, sample_parametric,
     numerical_deriv, numerical_deriv2, numerical_integral, filter_none,
-    _eval_np_batch, _finalize_y, _NP_OK
+    _eval_np_batch, _finalize_y, _NP_OK, _NP_NS,
 )
+try:
+    import _math_core as _cy
+    _CY_OK = True
+except ImportError:
+    _CY_OK = False
 from config import Config
 
 if TYPE_CHECKING:
@@ -44,11 +49,10 @@ class _LiveFn:
         if not self._expr:
             return [None] * len(xs)
         try:
-            if _NP_OK:
-                x_arr = np.asarray(xs, dtype=np.float64)
-                arr = _eval_np_batch(self._expr, x_arr, self._extra)
-                return _finalize_y(arr)
-            return sample_y(self._expr, xs, self._extra)
+            x_arr = np.ascontiguousarray(xs, dtype=np.float64)
+            if _CY_OK:
+                return _cy.sample_y_cy(self._expr, x_arr, _NP_NS, self._extra)
+            return _finalize_y(_eval_np_batch(self._expr, x_arr, self._extra))
         except Exception:
             return [None] * len(xs)
 
@@ -68,6 +72,11 @@ class Plotter:
 
     _DERIV_COLORS = {"_d": "#9b59b6", "_d2": "#e74c3c", "_int": "#2ecc71"}
     _DERIV_LABELS = {"_d": "f'(x)", "_d2": "f''(x)", "_int": "integral f dx"}
+    _SAMPLERS = {
+        "_d":   numerical_deriv,
+        "_d2":  numerical_deriv2,
+        "_int": numerical_integral,
+    }
 
     def __init__(self, chart: ChartWidget, panel: "FunctionPanel"):
         self._chart = chart
@@ -149,7 +158,8 @@ class Plotter:
                 continue
             try:
                 cx, cy = self._eval_mode(mode, expr, row, x_vals, t_vals, extra)
-                line.setLabel(label + ("" if mode == "y=f(x)" else (" (r)" if mode == "r=f(t)" else " (p)")))
+                suffix = "" if mode == "y=f(x)" else (" (r)" if mode == "r=f(t)" else " (p)")
+                line.setLabel(label + suffix)
                 line.pen.setColor(QColor(row.color))
                 line.pen.setWidth(row.get_width())
                 line.setData(xs=list(cx), ys=list(cy))
@@ -163,8 +173,7 @@ class Plotter:
     @staticmethod
     def _eval_mode(mode: str, expr: str, row, x_vals, t_vals, extra: dict) -> Tuple[List, List]:
         if mode == "y=f(x)":
-            ys = sample_y(expr, x_vals, extra)
-            return filter_none(x_vals, ys)
+            return filter_none(x_vals, sample_y(expr, x_vals, extra))
         if mode == "r=f(t)":
             theta = linspace(_POLAR_THETA_START, _POLAR_THETA_END, len(x_vals))
             return sample_polar(expr, theta, extra)
@@ -186,21 +195,12 @@ class Plotter:
             row = rows[idx]
             expr = row.get_expr()
             if row.get_mode() == "y=f(x)" and expr:
-                shows = {
-                    "_d":   dp.show_d1(),
-                    "_d2":  dp.show_d2(),
-                    "_int": dp.show_ig(),
-                }
-                _samplers = {
-                    "_d":   numerical_deriv,
-                    "_d2":  numerical_deriv2,
-                    "_int": numerical_integral,
-                }
+                shows = {"_d": dp.show_d1(), "_d2": dp.show_d2(), "_int": dp.show_ig()}
                 rid = id(row)
                 for sfx, visible in shows.items():
-                    k = f"{rid}{sfx}"
                     if not visible:
                         continue
+                    k = f"{rid}{sfx}"
                     active_keys.add(k)
                     if k not in dl:
                         dl[k] = self._chart.plot(
@@ -208,7 +208,7 @@ class Plotter:
                             color=self._DERIV_COLORS[sfx],
                             width=1,
                         )
-                    ys = _samplers[sfx](expr, x_vals, extra)
+                    ys = self._SAMPLERS[sfx](expr, x_vals, extra)
                     cx, cy = filter_none(x_vals, ys)
                     dl[k].setData(xs=list(cx), ys=list(cy))
                     dl[k].setVisible(True)

@@ -344,6 +344,6 @@ QFrame[frameShape="4"], QFrame[frameShape="5"] {
 
 THEMES: Dict[str, ThemeDef] = {
     "light": ThemeDef(name="Light", stylesheet=_LIGHT_SS, palette_fn="light"),
-    "dark": ThemeDef(name="Dark (Fusion)", stylesheet=_DARK_SS, palette_fn="dark"),
-    "high_contrast": ThemeDef(name="High Contrast (JetBrains)", stylesheet=_HC_SS, palette_fn="high_contrast"),
+    "dark": ThemeDef(name="Dark", stylesheet=_DARK_SS, palette_fn="dark"),
+    "high_contrast": ThemeDef(name="High Contrast", stylesheet=_HC_SS, palette_fn="high_contrast"),
 }
